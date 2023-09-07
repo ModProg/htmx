@@ -1,0 +1,5 @@
+---
+source: tests/macro.rs
+expression: html.into_html().to_string()
+---
+<div><a download href="hello"></a><a download="file.name" href="hello"></a><a href="test"></a></div>
