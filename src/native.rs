@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use derive_more::Display;
-use forr::forr;
+use forr::{forr, iff};
 use html_escape::encode_double_quoted_attribute;
 
 use crate::attributes::{AnyAttributeValue, FlagOrAttributeValue, IntoAttribute, ValueOrFlag};
@@ -22,6 +22,14 @@ forr! {$type:ty in [&str, String, Cow<'_, str>]$*
         fn write_to_html(&self, out: &mut Html) {
             write!(out.0, " {} ", html_escape::encode_text(&self)).unwrap()
         }
+    }
+}
+
+struct ScriptContent(Cow<'static, str>);
+
+impl ToHtml for ScriptContent {
+    fn write_to_html(&self, out: &mut Html) {
+        write!(out.0, " {} ", html_escape::encode_script(&self.0)).unwrap();
     }
 }
 
@@ -121,15 +129,25 @@ forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, 
             self
         }
 
-        /// Adds a child component or element.
-        pub fn child(mut self, child: impl IntoHtmlElements + 'static) -> Self {
-            self.children.extend(
-                child
-                    .into_elements()
-                    .into_iter()
-                    .map(|elem| Box::new(elem) as Box<dyn ToHtml>),
-            );
-            self
+        iff! {!equals($type)(script) $:
+            /// Adds a child component or element.
+            pub fn child(mut self, child: impl IntoHtmlElements + 'static) -> Self {
+                self.children.extend(
+                    child
+                        .into_elements()
+                        .into_iter()
+                        .map(|elem| Box::new(elem) as Box<dyn ToHtml>),
+                );
+                self
+            }
+        }
+
+        iff! {equals($type)(script) $:
+            /// Adds a child component or element.
+            pub fn child(mut self, child: impl Into<Cow<'static, str>>) -> Self {
+                self.children.push(Box::new(ScriptContent(child.into())));
+                self
+            }
         }
 
         /// Sets a `data-{key}` attribute.

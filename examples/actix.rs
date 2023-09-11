@@ -1,6 +1,10 @@
+//! ```cargo
+//! [dependencies]
+//! actix-web = "4.4.0"
+//! ```
 use std::collections::HashMap;
 
-use actix_web::web::{self, Form};
+use actix_web::web::Form;
 use actix_web::{get, post, App, HttpServer, Responder};
 use htmx::{htmx, HtmxSrc};
 
@@ -11,16 +15,14 @@ async fn index() -> impl Responder {
             <HtmxSrc/>
         </head>
         <h1>"Actix Demo"</h1>
-        <form data_hx_post="/greet" data_hx_swap="outerHTML">
+        <form hx::post="/greet" hx::swap="outerHTML">
             <input name="name" placeholder="Name"/>
             <button> "Greet me" </button>
         </form>
     }
 }
 
-// #[routes]
 #[post("/greet")]
-// #[get("/greet/{name}")]
 async fn greet(Form(form): Form<HashMap<String, String>>) -> impl Responder {
     htmx! {
         "Hello"

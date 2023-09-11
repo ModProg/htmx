@@ -50,9 +50,9 @@ dependencies = [
 
 [[package]]
 name = "manyhow"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bd36e9fda56207708aaa550916d2b3fa2eb59fc4eeb711aabdcb995e29f27d6"
+checksum = "f12ce15832b1c9c4d1e41dd7972a8afc88008743f1aabdd140ce3c0fb72fed36"
 dependencies = [
  "manyhow-macros",
  "proc-macro2",
@@ -62,9 +62,9 @@ dependencies = [
 
 [[package]]
 name = "manyhow-macros"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f77799897bae27ab96fc15f4a1139b0ae27bdcc9fa103032dae75112c1e781d1"
+checksum = "f62795c21f127551ebefc71810974b2203f2e8866f5f42c639b1af15b4ed72c2"
 dependencies = [
  "proc-macro-utils",
  "proc-macro2",

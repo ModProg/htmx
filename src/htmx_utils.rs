@@ -1,3 +1,5 @@
+use htmx_macros::htmx;
+
 use crate::Html;
 
 #[must_use]
@@ -9,9 +11,8 @@ impl HtmxSrc {
     }
 
     pub fn build(self) -> Html {
-        Html(format!("<script>{}</script>", include_str!("htmx.min.js")))
-        // htmx! {crate
-        //     <script> {include_str!("htmx.min.js")} </script>
-        // }
+        htmx! {crate
+            <script>{include_str!("htmx.min.js")}</script>
+        }
     }
 }

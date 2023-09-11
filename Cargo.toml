@@ -10,19 +10,27 @@ readme = "README.md"
 repository = "https://github.com/ModProg/htmx"
 documentation = "https://docs.rs/htmx"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = ["actix-web"]
+# default = ["axum"]
 sorted_attributes = []
+axum = ["dep:axum-core"]
 
 [dependencies]
 html = "0.6.1"
 quote-use = { version = "0.7.1", features = ["namespace_idents"] }
 htmx-macros = { version = "0.1.0", path = "htmx-macros" }
-derive_more = { version = "1.0.0-beta.3", features = ["as_ref", "deref", "deref_mut", "from", "constructor", "display"] }
+derive_more = { version = "1.0.0-beta.3", features = [
+    "as_ref",
+    "deref",
+    "deref_mut",
+    "from",
+    "constructor",
+    "display",
+] }
 html-escape = "0.2.13"
-forr = "0.1.1"
+forr = "0.2"
 actix-web = { version = "4.4.0", default-features = false, optional = true }
+axum-core = { version = "0.3.4", optional = true }
 
 [dev-dependencies]
 insta = "1.31.0"
@@ -30,12 +38,18 @@ insta = "1.31.0"
 htmx = { path = ".", default-features = false, features = [
     "sorted_attributes",
 ] }
-actix-web = { version = "4.4.0" }
+
+# example dependencies
+actix-web = "4.4.0"
+
+axum = "0.6.20"
+tokio = { version = "1.32.0", features = ["full"] }
+
+tauri-runtime = "0.14"
+tauri-runtime-wry = "0.14"
+url = "2.4.1"
 
 [profile.dev.package.insta]
-opt-level = 3
-
-[profile.dev.package.similar]
 opt-level = 3
 
 [package.metadata.docs.rs]
@@ -49,6 +63,11 @@ shared-version = true
 name = "actix"
 path = "examples/actix.rs"
 required-features = ["actix-web"]
+
+[[example]]
+name = "axum"
+path = "examples/axum.rs"
+required-features = ["axum"]
 
 [[package.metadata.release.pre-release-replacements]]
 file = "CHANGELOG.md"

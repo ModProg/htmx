@@ -1,12 +1,13 @@
 use manyhow::{bail, manyhow, Result};
 use proc_macro2::{TokenStream, TokenTree};
-use quote::{ToTokens, quote_spanned};
-use quote_use::quote_use as quote;
+use quote::ToTokens;
+use quote_use::{quote_use as quote, quote_spanned_use as quote_spanned};
 use rstml::atoms::OpenTag;
 use rstml::node::{
     AttributeValueExpr, KeyedAttribute, KeyedAttributeValue, Node, NodeAttribute, NodeElement,
     NodeName,
 };
+use syn::spanned::Spanned;
 use syn::ExprPath;
 
 #[manyhow]
@@ -121,17 +122,22 @@ fn name_to_struct(name: NodeName) -> Result<ExprPath> {
 
 fn attribute_key_to_fn(name: NodeName, value: impl ToTokens) -> Result {
     match name {
-        NodeName::Path(ExprPath { path, .. }) => Ok(if let Some(ident) = path.get_ident() {
-            let sident = ident.to_string().replace("_", "-");
+        NodeName::Path(ExprPath { path, .. }) => Ok({
+            let sident = path
+                .segments
+                .iter()
+                .map(|i| i.ident.to_string().replace('_', "-"))
+                .collect::<Vec<_>>()
+                .join("-");
             if let Some(sident) = sident.strip_prefix("data-") {
-                quote_spanned!(ident.span()=> data(#sident, #value))
-            } else if sident.starts_with("hz-") {
-                quote_spanned!(ident.span()=> data(#sident, #value))
-            } else {
+                quote_spanned!(path.span()=> data(#sident, #value))
+            } else if sident.starts_with("hx-") {
+                quote_spanned!(path.span()=> data(#sident, #value))
+            } else if let Some(ident) = path.get_ident() {
                 quote!(#ident(#value))
+            } else {
+                bail!(path, "only `data::` or `hx::` are allowed as path prefix");
             }
-        } else {
-            todo!("handle `data::...` or `hz::...`")
         }),
         // This {...}
         NodeName::Punctuated(_) => {

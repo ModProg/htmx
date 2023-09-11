@@ -12,19 +12,21 @@ use derive_more::Display;
 pub use htmx_macros::*;
 pub use htmx_utils::*;
 
+const DOCTYPE: &str = "<!DOCTYPE html>";
+
 #[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Display)]
 #[must_use]
 pub struct Html(String);
 
 impl Html {
     pub fn new() -> Self {
-        Self::default()
+        Self(DOCTYPE.into())
     }
 }
 
 impl ToHtml for Html {
     fn write_to_html(&self, html: &mut Html) {
-        html.0.write_str(&self.0).unwrap();
+        html.0.write_str(&self.0[DOCTYPE.len()..]).unwrap();
     }
 
     fn to_html(&self) -> Html {
@@ -145,3 +147,22 @@ mod actix {
 }
 #[cfg(feature = "actix-web")]
 pub use actix::*;
+
+#[cfg(feature = "axum")]
+mod axum {
+    use axum_core::response::IntoResponse;
+
+    use crate::Html;
+
+    impl IntoResponse for Html {
+        fn into_response(self) -> axum_core::response::Response {
+            (
+                [("Content-Type", "text/html; charset=utf-8")],
+                self.to_string(),
+            )
+                .into_response()
+        }
+    }
+}
+#[cfg(feature = "axum")]
+pub use axum::*;
