@@ -18,6 +18,10 @@ const DOCTYPE: &str = "<!DOCTYPE html>";
 #[must_use]
 pub struct Html(String);
 
+pub trait ToJs {
+    // TODO
+}
+
 impl Html {
     pub fn new() -> Self {
         Self(DOCTYPE.into())

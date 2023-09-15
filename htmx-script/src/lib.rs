@@ -50,7 +50,7 @@ impl ToTokens for JsTokens {
         js_tokens.push(quote!($out.push_str(#last_verbatum)));
         quote! {{
             use ::htmx::ToJs as _;
-            let $out = String::new();
+            let mut $out = String::new();
             #(#js_tokens;)*
             $out
         }}
@@ -110,9 +110,9 @@ impl ToJs for Lit {
     }
 }
 
-pub struct File(pub Vec<Stmt>);
+pub struct Script(pub Vec<Stmt>);
 
-impl ToJs for File {
+impl ToJs for Script {
     fn to_js(&self, js: &mut JsTokens) {
         for stmt in &self.0 {
             stmt.to_js(js);
@@ -120,7 +120,7 @@ impl ToJs for File {
     }
 }
 
-impl Parse for File {
+impl Parse for Script {
     fn parse(input: ParseStream) -> Result<Self> {
         iter::from_fn(|| (!input.is_empty()).then(|| input.parse()))
             .collect::<Result<_>>()
@@ -598,7 +598,7 @@ impl Parse for Block {
         let stmts;
         Ok(Self {
             braces: braced!(stmts in input),
-            stmts: File::parse(&stmts)?.0,
+            stmts: Script::parse(&stmts)?.0,
         })
     }
 }
@@ -794,7 +794,7 @@ fn basic() -> syn::Result<()> {
             alert($"Hi ${name} you triggered an event ${event.type}");
         }
     };
-    let ast: File = parse2(rust)?;
+    let ast: Script = parse2(rust)?;
     insta::assert_snapshot!(ast.to_java_script().to_token_stream().to_string());
     Ok(())
 }

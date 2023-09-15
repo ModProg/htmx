@@ -1,14 +1,15 @@
+use htmx_script::{Script, ToJs};
 use manyhow::{bail, manyhow, Result};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
-use quote_use::{quote_use as quote, quote_spanned_use as quote_spanned};
+use quote_use::{quote_spanned_use as quote_spanned, quote_use as quote};
 use rstml::atoms::OpenTag;
 use rstml::node::{
-    AttributeValueExpr, KeyedAttribute, KeyedAttributeValue, Node, NodeAttribute, NodeElement,
-    NodeName,
+    AttributeValueExpr, KeyedAttribute, KeyedAttributeValue, Node, NodeAttribute, NodeBlock,
+    NodeElement, NodeName,
 };
 use syn::spanned::Spanned;
-use syn::ExprPath;
+use syn::{parse2, ExprPath, LitStr};
 
 #[manyhow]
 #[proc_macro]
@@ -35,7 +36,8 @@ pub fn htmx(input: TokenStream) -> Result {
     let nodes = rstml::Parser::new(
         rstml::ParserConfig::new()
             .recover_block(true)
-            .element_close_use_default_wildcard_ident(false),
+            .element_close_use_default_wildcard_ident(false)
+            .raw_text_elements(["script"].into()),
     )
     // TODO parse_recoverable
     .parse_simple(input.collect::<TokenStream>())?
@@ -75,6 +77,7 @@ fn expand_node(node: Node) -> Result {
             close_tag,
             ..
         }) => {
+            let script = name.to_string() == "script";
             let name = name_to_struct(name)?;
             let attributes = attributes
                 .into_iter()
@@ -94,11 +97,28 @@ fn expand_node(node: Node) -> Result {
                     },
                 })
                 .collect::<Result<Vec<_>>>()?;
-            let children = children
-                .into_iter()
-                .map(expand_node)
-                .collect::<Result<Vec<_>>>()?;
-            let main = quote!(#name::builder() #(.#attributes)* #(.child(#children))*.build());
+            let children = if script {
+                let Some(Node::RawText(script)) = children.first() else {
+                    unreachable!("script always raw text")
+                };
+                let script = script.into_token_stream();
+                if let Ok(script) = parse2::<LitStr>(script.clone()) {
+                    quote!(.child(#script))
+                } else if let Ok(block) = parse2::<NodeBlock>(script.clone()) {
+                    quote!( .child({#[allow(unused_braces)] #block}))
+                } else {
+                    let script: Script = parse2(script)?;
+                    let script = script.to_java_script();
+                    quote!(.child(#script))
+                }
+            } else {
+                let children = children
+                    .into_iter()
+                    .map(expand_node)
+                    .collect::<Result<Vec<_>>>()?;
+                quote!(#(.child(#children))*)
+            };
+            let main = quote!(#name::builder() #(.#attributes)* #children .build());
             match close_tag.map(|tag| name_to_struct(tag.name)) {
                 // If close_tag was specified, use it so coloring happens
                 Some(Ok(close_tag)) if close_tag == name => quote!({let _ :#close_tag;#main}),

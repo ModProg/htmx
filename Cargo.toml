@@ -1,3 +1,6 @@
+[workspace]
+members = ["example"]
+
 [package]
 name = "htmx"
 version = "0.1.0"
@@ -39,16 +42,6 @@ htmx = { path = ".", default-features = false, features = [
     "sorted_attributes",
 ] }
 
-# example dependencies
-actix-web = "4.4.0"
-
-axum = "0.6.20"
-tokio = { version = "1.32.0", features = ["full"] }
-
-tauri-runtime = "0.14"
-tauri-runtime-wry = "0.14"
-url = "2.4.1"
-
 [profile.dev.package.insta]
 opt-level = 3
 
@@ -58,16 +51,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [package.metadata.release]
 shared-version = true
-
-[[example]]
-name = "actix"
-path = "examples/actix.rs"
-required-features = ["actix-web"]
-
-[[example]]
-name = "axum"
-path = "examples/axum.rs"
-required-features = ["axum"]
 
 [[package.metadata.release.pre-release-replacements]]
 file = "CHANGELOG.md"

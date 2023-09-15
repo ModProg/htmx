@@ -13,12 +13,18 @@ async fn index() -> impl Responder {
     htmx! {
         <head>
             <HtmxSrc/>
+            <script>
+                fn hello_function() {
+                    alert("RUSTY JS!!!!")
+                }
+            </script>
         </head>
         <h1>"Actix Demo"</h1>
         <form hx::post="/greet" hx::swap="outerHTML">
             <input name="name" placeholder="Name"/>
             <button> "Greet me" </button>
         </form>
+        <button onclick="hello_function()"> "Alert me" </button>
     }
 }
 

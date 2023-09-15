@@ -1,0 +1,44 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2021"
+categories = []
+description = "HTMX examples"
+keywords = []
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/ModProg/htmx"
+documentation = "https://docs.rs/htmx"
+
+[features]
+# default = ["actix"]
+axum = ["htmx/axum", "dep:tokio", "dep:axum"]
+tauri = ["dep:tauri-runtime", "dep:tauri-runtime-wry", "dep:url"]
+actix = ["htmx/actix-web", "dep:actix-web"]
+
+[dependencies]
+htmx.path = ".."
+
+actix-web = { version = "4.4.0", optional = true }
+
+axum = { version = "0.6.20", optional = true }
+tokio = { version = "1.32.0", features = ["full"], optional = true }
+
+tauri-runtime = { version = "0.14", optional = true }
+tauri-runtime-wry = { version = "0.14", optional = true }
+url = { version = "2.4.1", optional = true }
+
+[[example]]
+name = "actix"
+path = "actix.rs"
+required-features = ["actix"]
+
+[[example]]
+name = "axum"
+path = "axum.rs"
+required-features = ["axum"]
+
+[[example]]
+name = "tauri"
+path = "tauri.rs"
+required-features = ["tauri"]

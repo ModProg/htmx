@@ -1,5 +1,5 @@
 ---
-source: src/lib.rs
+source: htmx-script/src/lib.rs
 expression: ast.to_java_script().to_token_stream().to_string()
 ---
-{ use :: htmx :: ToJs as _ ; let __htmx_script_out = :: std :: prelude :: v1 :: String :: new () ; __htmx_script_out . push_str (" function on_click ( event , ) { const name = ") ; __htmx_script_out . push_str (name . to_js ()) ; __htmx_script_out . push_str (" ; return alert ( `Hi ${name} you triggered an event ${event.type}` , ) ; }") ; __htmx_script_out }
+{ use :: htmx :: ToJs as _ ; let mut __htmx_script_out = :: std :: prelude :: v1 :: String :: new () ; __htmx_script_out . push_str (" function on_click ( event , ) { const name = ") ; __htmx_script_out . push_str (name . to_js ()) ; __htmx_script_out . push_str (" ; return alert ( `Hi ${name} you triggered an event ${event.type}` , ) ; }") ; __htmx_script_out }
