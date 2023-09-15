@@ -21,7 +21,9 @@ proc-macro-crate = "1.3.1"
 proc-macro2 = "1.0.66"
 quote = "1.0.33"
 quote-use = "0.7.2"
-rstml.path = "../../rstml/"
+# rstml.path = "../../rstml/"
+rstml.git = "https://github.com/ModProg/rstml"
+rstml.branch = "parse-for-node-block"
 syn = "2.0.29"
 
 [package.metadata.release]

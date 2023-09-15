@@ -2468,6 +2468,7 @@ checksum = "dbb5fb1acd8a1a18b3dd5be62d25485eb770e05afb408a9627d14d451bae12da"
 [[package]]
 name = "rstml"
 version = "0.11.2"
+source = "git+https://github.com/ModProg/rstml?branch=parse-for-node-block#00e1d90b168bdd1753eae53930992d961a5be632"
 dependencies = [
  "proc-macro2",
  "proc-macro2-diagnostics",
