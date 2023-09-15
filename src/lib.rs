@@ -19,7 +19,13 @@ const DOCTYPE: &str = "<!DOCTYPE html>";
 pub struct Html(String);
 
 pub trait ToJs {
-    // TODO
+    fn to_js(&self) -> String;
+}
+
+impl<T: Serialize> ToJs for T {
+    fn to_js(&self) -> String {
+        serde_json::to_string(self).expect("Serialization shouldn't fail.")
+    }
 }
 
 impl Html {
@@ -170,3 +176,4 @@ mod axum {
 }
 #[cfg(feature = "axum")]
 pub use axum::*;
+use serde::Serialize;

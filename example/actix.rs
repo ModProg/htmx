@@ -10,12 +10,15 @@ use htmx::{htmx, HtmxSrc};
 
 #[get("/")]
 async fn index() -> impl Responder {
+    let rust_str = ["hello", "world", "!"];
     htmx! {
         <head>
             <HtmxSrc/>
             <script>
                 fn hello_function() {
-                    alert("RUSTY JS!!!!")
+                    console.log($rust_str);
+                    let rust_str = $rust_str;
+                    alert($"RUSTY JS!!!! ${rust_str.join(' ')}");
                 }
             </script>
         </head>

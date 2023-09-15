@@ -1422,6 +1422,8 @@ dependencies = [
  "htmx-macros",
  "insta",
  "quote-use",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

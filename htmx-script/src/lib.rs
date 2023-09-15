@@ -43,7 +43,7 @@ impl ToTokens for JsTokens {
                     let mut last_verbatum = mem::take(&mut last_verbatum);
                     last_verbatum.push(' ');
                     js_tokens.push(quote!($out.push_str(#last_verbatum)));
-                    js_tokens.push(quote!($out.push_str(#ident.to_js())))
+                    js_tokens.push(quote!($out.push_str(#ident.to_js().as_str())))
                 }
             }
         }
@@ -140,11 +140,11 @@ impl ToJs for Stmt {
             Stmt::Binding(b) => b.to_js(js),
             Stmt::Item(i) => i.to_js(js),
             Stmt::Expr(e, None) => {
+                "return".to_js(js);
                 e.to_js(js);
                 ";".to_js(js);
             }
             Stmt::Expr(e, Some(_)) => {
-                "return".to_js(js);
                 e.to_js(js);
                 ";".to_js(js);
             }
@@ -791,6 +791,7 @@ fn basic() -> syn::Result<()> {
         fn on_click(event) {
             // TODO support rust in template strings
             let name = $name;
+            console.log($name);
             alert($"Hi ${name} you triggered an event ${event.type}");
         }
     };
