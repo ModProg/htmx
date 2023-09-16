@@ -1,17 +1,27 @@
+//! Details on conversion for Attribute values.
 use std::borrow::Cow;
 
 use forr::forr;
 
+/// An attribute that accepts a numeric value.
 pub struct Number;
 
+/// An attribute that can be just set or set to a value.
 pub enum ValueOrFlag {
+    /// Attribute is set to a value.
     Value(String),
+    /// Attribute is set without a value.
     Flag,
+    /// Attribute is not set.
     Unset,
 }
 
+/// Converts to an Attribute that accepts type [`Self::Target`], e.g.,
+/// [`Number`].
 pub trait IntoAttribute {
+    /// Target value of the attribute.
     type Target;
+    /// Converts into an attribute value.
     fn into_attribute(self) -> ValueOrFlag;
 }
 
@@ -69,7 +79,9 @@ forr! { $type:ty in [&str, String, Cow<'_, str>] $*
     }
 }
 
+/// Trait accepted by an attribute that allows both values and flags.
 pub trait FlagOrAttributeValue {
+    /// Converts into value.
     fn into_attribute(self) -> ValueOrFlag;
 }
 
@@ -85,7 +97,9 @@ impl<A: IntoAttribute<Target = String>> FlagOrAttributeValue for A {
     }
 }
 
+/// Trait accepted by an attribute that accepts any value
 pub trait AnyAttributeValue {
+    /// Converts into value.
     fn into_attribute(self) -> ValueOrFlag;
 }
 

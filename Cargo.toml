@@ -14,7 +14,7 @@ repository = "https://github.com/ModProg/htmx"
 documentation = "https://docs.rs/htmx"
 
 [features]
-# default = ["axum"]
+default = ["axum", "actix-web"]
 sorted_attributes = []
 axum = ["dep:axum-core"]
 
@@ -36,6 +36,7 @@ actix-web = { version = "4.4.0", default-features = false, optional = true }
 axum-core = { version = "0.3.4", optional = true }
 serde = "1.0.188"
 serde_json = "1.0.107"
+typed-builder = "0.16.0"
 
 [dev-dependencies]
 insta = "1.31.0"
@@ -43,6 +44,7 @@ insta = "1.31.0"
 htmx = { path = ".", default-features = false, features = [
     "sorted_attributes",
 ] }
+serde = { version = "1.0.188", features = ["derive"] }
 
 [profile.dev.package.insta]
 opt-level = 3

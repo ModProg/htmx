@@ -13,7 +13,7 @@ async fn index() -> impl Responder {
     let rust_str = ["hello", "world", "!"];
     htmx! {
         <head>
-            <HtmxSrc/>
+            <script src="/htmx"/>
             <script>
                 fn hello_function() {
                     console.log($rust_str);
@@ -40,10 +40,15 @@ async fn greet(Form(form): Form<HashMap<String, String>>) -> impl Responder {
     }
 }
 
+#[get("/htmx")]
+async fn htmx_src() -> impl Responder {
+    HtmxSrc
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     println!("http://localhost:8080");
-    HttpServer::new(|| App::new().service(index).service(greet))
+    HttpServer::new(|| App::new().service(index).service(greet).service(htmx_src))
         .bind(("127.0.0.1", 8080))?
         .run()
         .await

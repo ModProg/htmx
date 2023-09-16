@@ -53,9 +53,7 @@ pub fn htmx(input: TokenStream) -> Result {
             use #htmx::native::*;
             let mut $htmx = Html::new();
             #(
-                for $elem in IntoHtmlElements::into_elements(#nodes) {
-                    ToHtml::write_to_html(&$elem, &mut $htmx);
-                }
+                ToHtml::write_to_html(&#nodes, &mut $htmx);
             )*
             $htmx
         }}
@@ -97,7 +95,9 @@ fn expand_node(node: Node) -> Result {
                     },
                 })
                 .collect::<Result<Vec<_>>>()?;
-            let children = if script {
+            let children = if children.is_empty() {
+                quote!()
+            } else if script {
                 let Some(Node::RawText(script)) = children.first() else {
                     unreachable!("script always raw text")
                 };
@@ -116,7 +116,7 @@ fn expand_node(node: Node) -> Result {
                     .into_iter()
                     .map(expand_node)
                     .collect::<Result<Vec<_>>>()?;
-                quote!(#(.child(#children))*)
+                quote!(#(.child(&#children))*)
             };
             let main = quote!(#name::builder() #(.#attributes)* #children .build());
             match close_tag.map(|tag| name_to_struct(tag.name)) {
@@ -171,3 +171,51 @@ fn attribute_key_to_fn(name: NodeName, value: impl ToTokens) -> Result {
         }
     }
 }
+
+// todo derive macro
+// #[component]
+// fn MyFnComponent(a: bool, b: String) -> Html {
+//     htmx! {crate
+//         <button disabled=a> {b} </button>
+//     }
+// }
+//
+// // Generates
+//
+// #[derive(typed_builder::TypedBuilder)]
+// #[builder(crate_module_path=::typed_builder)]
+// #[builder(build_method(into = Html))]
+// struct MyFnComponent {
+//     a: bool,
+//     b: String,
+// }
+//
+// impl Into<Html> for MyFnComponent {
+//     fn into(self) -> Html {
+//         let Self { a, b } = self;
+//         htmx! {crate
+//             <button disabled=a> {b} </button>
+//         }
+//     }
+// }
+//
+// // Using only struct
+// #[derive(Component)]
+// struct MyStructComponent {
+//     a: bool,
+//     b: String,
+// }
+// impl Into<Html> for MyStructComponent {
+//     fn into(self) -> Html {
+//         let Self { a, b } = self;
+//         htmx! {crate
+//             <button disabled=a> {b} </button>
+//         }
+//     }
+// }
+//
+// // Generate
+// #[derive(typed_builder::TypedBuilder)]
+// #[builder(crate_module_path=::typed_builder)]
+// #[builder(build_method(into = Html))]
+//

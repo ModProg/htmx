@@ -1,3 +1,4 @@
+//! Native html elements
 #![allow(non_camel_case_types)]
 
 use std::borrow::Cow;
@@ -9,13 +10,7 @@ use forr::{forr, iff};
 use html_escape::encode_double_quoted_attribute;
 
 use crate::attributes::{AnyAttributeValue, FlagOrAttributeValue, IntoAttribute, ValueOrFlag};
-use crate::{Html, IntoHtmlElements, ToHtml};
-
-impl<T: ToHtml> ToHtml for &T {
-    fn write_to_html(&self, out: &mut Html) {
-        (*self).write_to_html(out);
-    }
-}
+use crate::{Html, ToHtml};
 
 forr! {$type:ty in [&str, String, Cow<'_, str>]$*
     impl ToHtml for $type {
@@ -34,29 +29,49 @@ impl ToHtml for ScriptContent {
 }
 
 macro_rules! attribute {
-    ($name:ident) => {
-        attribute!($name<String>);
+    ($elem:ident|$name:ident) => {
+        attribute!($elem|$name<String>);
     };
-    ($name:ident=$actual:tt) => {
-        attribute!($name=$actual<String>);
+    ($elem:ident|$name:ident=$actual:tt) => {
+        attribute!($elem|$name=$actual<String>);
     };
-    ($name:ident < $type:ty >) => {
-        attribute!($name=(stringify!($name))<$type>);
+    ($elem:ident|$name:ident < $type:ty >) => {
+        attribute!($elem|$name=(stringify!($name))<$type>);
     };
-    ($name:ident=$actual:tt< $type:ty >) => {
-        pub fn $name(mut self, value: impl IntoAttribute<Target = $type>) -> Self {
+    ($elem:ident|$name:ident=$actual:tt< $type:ty >) => {
+        attribute!($elem, $name, stringify!($name), impl IntoAttribute<Target = $type>);
+    };
+    ($elem:ident|$name:ident?) => {
+        attribute!($elem, $name, stringify!($name), impl FlagOrAttributeValue);
+    };
+    (global, $name:ident, $actual:expr, $type:ty) => {
+        attr_fn!(concat!("Sets the [`", $actual, "`](https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/", $actual, ") attribute."), $name, $actual, $type);
+    };
+    (event, $name:ident, $actual:expr, $type:ty) => {
+        attr_fn!(concat!("Sets the `", $actual, "` [event handler](https://developer.mozilla.org/en-US/docs/Web/HTML/Attributes#event_handler_attributes) attribute."), $name, $actual, $type);
+    };
+    ($elem:ident, $name:ident, $actual:expr, $type:ty) => {
+        attr_fn!(concat!("Sets the `", $actual, "` attribute on the [`<", stringify!($elem),">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/", stringify!($elem), "#attributes) element."), $name, $actual, $type);
+    };
+    ($($doc:expr)?, $name:ident, $actual:tt, $type:ty) => {
+        $(#[doc = $doc])?
+        pub fn $name(mut self, value: $type) -> Self {
             self.attributes
                 .insert($actual.into(), value.into_attribute());
             self
         }
     };
-    ($name:ident?) => {
-        pub fn $name(mut self, value: impl FlagOrAttributeValue) -> Self {
+}
+
+macro_rules! attr_fn{
+    ($($doc:expr)?, $name:ident, $actual:tt, $type:ty) => {
+        $(#[doc = $doc])?
+        pub fn $name(mut self, value: $type) -> Self {
             self.attributes
-                .insert(stringify!($name).into(), value.into_attribute());
+                .insert($actual.into(), value.into_attribute());
             self
         }
-    };
+    }
 }
 
 // Attributes that take values
@@ -70,18 +85,19 @@ forr! { ($type:ty, $attrs:tt) in [
 ] $*
     impl $type {
         forr! { $attr:ty in $attrs $*
-            attribute!($attr);
+            attribute!($type|$attr);
         }
     }
 }
 
 forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, script] $*
 
+    #[doc = concat!("The [`<", stringify!($type), ">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/", stringify!($type), ") element.")]
     #[must_use]
     #[derive(Default)]
     pub struct $type {
         attributes: HashMap<Cow<'static, str>, ValueOrFlag>,
-        children: Vec<Box<dyn ToHtml>>,
+        inner: Html,
     }
 
     impl ToHtml for $type {
@@ -109,9 +125,7 @@ forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, 
                 }
             }
             write!(out.0, ">").unwrap();
-            for child in &self.children {
-                child.write_to_html(out);
-            }
+            self.inner.write_to_html(out);
             write!(out.0, concat!("</", stringify!($type) , ">")).unwrap();
         }
     }
@@ -119,25 +133,22 @@ forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, 
     impl $type {
         /// `builder()` is only present to be compatible with the builder
         /// instructions used for custom components, it just returns [`Self::default()`].
+        #[doc(hidden)]
         pub fn builder() -> Self {
             Self::default()
         }
 
         /// `build()` is only present to be compatible with the builder
         /// instructions used for custom components, it is a noop.
+        #[doc(hidden)]
         pub fn build(self) -> Self {
             self
         }
 
         iff! {!equals($type)(script) $:
             /// Adds a child component or element.
-            pub fn child(mut self, child: impl IntoHtmlElements + 'static) -> Self {
-                self.children.extend(
-                    child
-                        .into_elements()
-                        .into_iter()
-                        .map(|elem| Box::new(elem) as Box<dyn ToHtml>),
-                );
+            pub fn child(mut self, child: &impl ToHtml) -> Self {
+                child.write_to_html(&mut self.inner);
                 self
             }
         }
@@ -145,7 +156,7 @@ forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, 
         iff! {equals($type)(script) $:
             /// Adds a child component or element.
             pub fn child(mut self, child: impl Into<Cow<'static, str>>) -> Self {
-                self.children.push(Box::new(ScriptContent(child.into())));
+                ScriptContent(child.into()).write_to_html(&mut self.inner);
                 self
             }
         }
@@ -164,10 +175,14 @@ forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, 
         forr! { $attr:ty in [
             // TODO ARIA: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes
             accesskey<char>, autocapitalize/*off/none, on/sentence, words, characters*/, autofocus<bool>, class, contenteditable/*true, false, plaintext-only*/, dir/*ltr,rtl,auto*/, draggable/*true,false*/,
-            // Event handlers
+        ] $*
+            attribute!(global|$attr);
+        }
+        // Event handlers
+        forr! { $attr:ty in [
             onabort, onautocomplete, onautocompleteerror, onblur, oncancel, oncanplay, oncanplaythrough, onchange, onclick, onclose, oncontextmenu, oncuechange, ondblclick, ondrag, ondragend, ondragenter, ondragleave, ondragover, ondragstart, ondrop, ondurationchange, onemptied, onended, onerror, onfocus, oninput, oninvalid, onkeydown, onkeypress, onkeyup, onload, onloadeddata, onloadedmetadata, onloadstart, onmousedown, onmouseenter, onmouseleave, onmousemove, onmouseout, onmouseover, onmouseup, onmousewheel, onpause, onplay, onplaying, onprogress, onratechange, onreset, onresize, onscroll, onseeked, onseeking, onselect, onshow, onsort, onstalled, onsubmit, onsuspend, ontimeupdate, ontoggle, onvolumechange, onwaiting
         ] $*
-            attribute!($attr);
+            attribute!(event|$attr);
         }
     }
 }

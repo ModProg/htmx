@@ -1,24 +1,69 @@
-#![warn(clippy::pedantic/* , missing_docs */)]
+#![warn(clippy::pedantic, missing_docs)]
 #![allow(clippy::wildcard_imports)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+//! Library for doing serverside rendering of htm{l,x} using a macro.
+//!
+//! # `htmx!` macro
+//!
+//! The [`htmx!`] macro allows to write [`Html`] inside your rust code allowing
+//! to include rust values and instantiate [custom
+//! components](#custom-components).
+//!
+//! ```
+//! # use htmx::htmx;
+//!
+//! ```
+//!
+//! # Custom Components
+//!
+//! For more documentation see the individual items and the [examples](https://github.com/ModProg/htmx/tree/main/example).
+use std::fmt::Write;
+
+use derive_more::Display;
+use serde::Serialize;
 
 pub mod attributes;
 mod htmx_utils;
 pub mod native;
-use std::fmt::Write;
-use std::iter;
 
-use derive_more::Display;
 pub use htmx_macros::*;
 pub use htmx_utils::*;
 
+#[cfg(feature = "actix-web")]
+mod actix;
+#[cfg(feature = "actix-web")]
+pub use actix::*;
+
+#[cfg(feature = "axum")]
+mod axum;
+#[cfg(feature = "axum")]
+pub use axum::*;
+
 const DOCTYPE: &str = "<!DOCTYPE html>";
 
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Display)]
-#[must_use]
-pub struct Html(String);
-
+/// Trait used with the custom rust like js in `<script>` tags using the
+/// [`htmx!`] macro.
+///
+/// It is not used per fully qualified syntax so you are able to provide a
+/// custom `to_js()` method on types that implement [`Serialize`].
+///
+/// ```
+/// use serde::Serialize;
+///
+/// #[derive(Serialize)]
+/// struct CustomToJs(String);
+///
+/// impl CustomToJs {
+///     // returns custom string instead of `Serialize` implementation
+///     // `htmx!` will prefere this function.
+///     fn to_js(&self) -> String {
+///         format!("\"custom: {}\"", self.0)
+///     }
+/// }
+/// ```
 pub trait ToJs {
+    /// Converts into a string of JS code.
+    /// This string should be an expression.
     fn to_js(&self) -> String;
 }
 
@@ -28,9 +73,23 @@ impl<T: Serialize> ToJs for T {
     }
 }
 
+/// Html
+///
+/// Can be returned from http endpoints or converted to a string.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Display)]
+#[must_use]
+pub struct Html(String);
+
 impl Html {
+    /// Creates a piece of Html
     pub fn new() -> Self {
         Self(DOCTYPE.into())
+    }
+}
+
+impl Default for Html {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -51,15 +110,32 @@ impl ToHtml for Html {
     }
 }
 
+impl<T: ToHtml> ToHtml for &T {
+    fn write_to_html(&self, out: &mut Html) {
+        (*self).write_to_html(out);
+    }
+
+    fn to_html(&self) -> Html {
+        (*self).to_html()
+    }
+}
+
+/// Converts to [`Html`], either by appending to existing [`Html`] or by
+/// creating a new one.
 pub trait ToHtml {
+    /// Appends to existing [`Html`].
+    ///
+    /// Implementers should only implement this method.
     fn write_to_html(&self, html: &mut Html);
 
+    /// Converts to [`Html`].
     fn to_html(&self) -> Html {
         let mut html = Html::default();
         self.write_to_html(&mut html);
         html
     }
 
+    /// Converts to [`Html`].
     fn into_html(self) -> Html
     where
         Self: Sized,
@@ -68,112 +144,22 @@ pub trait ToHtml {
     }
 }
 
-pub trait IntoHtmlElements {
-    type Element: ToHtml;
-    type Elements: IntoIterator<Item = Self::Element>;
-
-    fn into_elements(self) -> Self::Elements;
-}
-
-impl<T: IntoHtmlElements> IntoHtmlElements for Vec<T> {
-    type Element = T::Element;
-    type Elements = Vec<Self::Element>;
-
-    fn into_elements(self) -> Self::Elements {
-        self.into_iter()
-            .flat_map(IntoHtmlElements::into_elements)
-            .collect()
-    }
-}
-
-impl<T: IntoHtmlElements> IntoHtmlElements for Option<T> {
-    type Element = T::Element;
-    type Elements = Vec<Self::Element>;
-
-    fn into_elements(self) -> Self::Elements {
-        self.into_iter()
-            .flat_map(IntoHtmlElements::into_elements)
-            .collect()
-    }
-}
-
-impl<T: ToHtml> IntoHtmlElements for T {
-    type Element = Self;
-    type Elements = iter::Once<Self::Element>;
-
-    fn into_elements(self) -> Self::Elements {
-        iter::once(self)
-    }
-}
-
-#[cfg(feature = "actix-web")]
-mod actix {
-    use std::mem;
-    use std::task::Poll;
-
-    use actix_web::body::{BoxBody, MessageBody};
-    use actix_web::http::header::ContentType;
-    use actix_web::web::Bytes;
-    use actix_web::{HttpResponse, Responder};
-
-    use crate::Html;
-
-    impl Responder for Html {
-        type Body = BoxBody;
-
-        fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
-            HttpResponse::Ok()
-                .content_type(ContentType::html())
-                .body(self)
-        }
-    }
-
-    impl MessageBody for Html {
-        type Error = <String as MessageBody>::Error;
-
-        fn size(&self) -> actix_web::body::BodySize {
-            self.0.size()
-        }
-
-        fn poll_next(
-            mut self: std::pin::Pin<&mut Self>,
-            _cx: &mut std::task::Context<'_>,
-        ) -> std::task::Poll<Option<Result<actix_web::web::Bytes, Self::Error>>> {
-            if self.0.is_empty() {
-                Poll::Ready(None)
-            } else {
-                let string = mem::take(&mut self.0);
-                Poll::Ready(Some(Ok(Bytes::from(string))))
-            }
-        }
-
-        fn try_into_bytes(self) -> Result<Bytes, Self>
-        where
-            Self: Sized,
-        {
-            Ok(Bytes::from(self.0))
+impl<T: ToHtml> ToHtml for Option<T> {
+    fn write_to_html(&self, html: &mut Html) {
+        if let Some(t) = self {
+            t.write_to_html(html);
         }
     }
 }
-#[cfg(feature = "actix-web")]
-pub use actix::*;
 
-#[cfg(feature = "axum")]
-mod axum {
-    use axum_core::response::IntoResponse;
-
-    use crate::Html;
-
-    impl IntoResponse for Html {
-        fn into_response(self) -> axum_core::response::Response {
-            (
-                [("Content-Type", "text/html; charset=utf-8")],
-                self.to_string(),
-            )
-                .into_response()
+/// ```
+/// use htmx::ToHtml;
+/// vec!["1", "2"].to_html();
+/// ```
+impl<T: ToHtml> ToHtml for [T] {
+    fn write_to_html(&self, html: &mut Html) {
+        for e in self {
+            e.write_to_html(html);
         }
     }
 }
-#[cfg(feature = "axum")]
-pub use axum::*;
-use serde::Serialize;
