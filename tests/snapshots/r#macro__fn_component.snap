@@ -1,0 +1,5 @@
+---
+source: tests/macro.rs
+expression: "htmx! {\n            < Component a b = \"Disabled Button\" / > < Component a = true b =\n            \"Disabled Button\" / > < Component a = false b = \"Enabled Button\" /\n            > < Component b = \"Enabled Button\" / >\n        }.to_string()"
+---
+<!DOCTYPE html><button disabled> Disabled Button </button><button disabled> Disabled Button </button><button> Enabled Button </button><button> Enabled Button </button>

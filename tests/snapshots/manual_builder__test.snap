@@ -1,0 +1,5 @@
+---
+source: tests/manual_builder.rs
+expression: "Component::builder().child(\"hello\").child(\"world\").build().to_string()"
+---
+<!DOCTYPE html><div> hello  world </div>

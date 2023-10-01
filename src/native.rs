@@ -81,7 +81,9 @@ forr! { ($type:ty, $attrs:tt) in [
     (button, [disabled<bool>, form, formaction, formenctype/*^^*/, formmethod/*^^*/, formnovalidate<bool>, formtarget/*^^*/, name, popovertarget, popovertargetaction/*hide|show|toggle*/, type_="type"/*submit|reset|button*/, value]),
     // TODO consider differentiating types
     (input, [accept, alt, autocomplete, capture, checked, disabled<bool>, form, formaction, formenctype/*^^*/, formmethod/*^^*/, formnovalidate<bool>, formtarget/*^^*/, height, max, maxlength, min, minlength, multiple, name, pattern, placeholder, popovertarget, popovertargetaction/*hide|show|toggle*/, readonly<bool>, required<bool>, size, src, step, type_="type"/*submit|reset|button*/, value, width]),
-    (script, [async_="async"<bool>, crossorigin/*anonymous|use-credentials*/, defer<bool>, integrity, nomodule<bool>, nonce, referrerpolicy/*no-referrer|no-referrer-when-downgrade|origin|origin-when-cross-origin|same-origin|strict-origin|strict-origin-when-cross-origin|unsafe-url*/, src, type_="type"/*importmap|module|Mime*/])
+    (html, [xmlns]),
+    (meta, [charset, content, http_equiv="http-equiv"/*content-security-policy,content-type,default-style,x-ua-compatible,refresh*/, name]),
+    (script, [async_="async"<bool>, crossorigin/*anonymous|use-credentials*/, defer<bool>, integrity, nomodule<bool>, referrerpolicy/*no-referrer|no-referrer-when-downgrade|origin|origin-when-cross-origin|same-origin|strict-origin|strict-origin-when-cross-origin|unsafe-url*/, src, type_="type"/*importmap|module|Mime*/])
 ] $*
     impl $type {
         forr! { $attr:ty in $attrs $*
@@ -90,7 +92,7 @@ forr! { ($type:ty, $attrs:tt) in [
     }
 }
 
-forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, script] $*
+forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, html, meta, script, title] $*
 
     #[doc = concat!("The [`<", stringify!($type), ">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/", stringify!($type), ") element.")]
     #[must_use]
@@ -147,7 +149,7 @@ forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, 
 
         iff! {!equals($type)(script) $:
             /// Adds a child component or element.
-            pub fn child(mut self, child: &impl ToHtml) -> Self {
+            pub fn child(mut self, child: impl ToHtml) -> Self {
                 child.write_to_html(&mut self.inner);
                 self
             }
@@ -174,8 +176,7 @@ forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, 
         // Global attributes
         forr! { $attr:ty in [
             // TODO ARIA: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes
-            accesskey<char>, autocapitalize/*off/none, on/sentence, words, characters*/, autofocus<bool>, class, contenteditable/*true, false, plaintext-only*/, dir/*ltr,rtl,auto*/, draggable/*true,false*/,
-        ] $*
+            accesskey<char>, autocapitalize/*off/none, on/sentence, words, characters*/, autofocus<bool>, class, contenteditable/*true, false, plaintext-only*/, dir/*ltr,rtl,auto*/, draggable/*true,false*/, enterkeyhint,hidden?/*hidden|until-found*/, id, inert<bool>, inputmode/*none,text,decimal,numeric,tel,search,email,url*/, is, itemid, itemprop, itemref, itemscope, itemtype, lang, nonce, part, popover, rolle, slot, spellcheck?/*true,false*/, style, tabindex, title, translate/*yes,no*/, virtualkeyboardpolicy/*auto,manual*/] $*
             attribute!(global|$attr);
         }
         // Event handlers
