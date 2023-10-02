@@ -40,15 +40,23 @@ impl<T, F: Into<T>, I: IntoIterator<Item = F>> From<I> for AttrVec<T> {
     }
 }
 
+/// Html boilderplate
 #[component]
 pub fn HtmlPage(
     /// Sets `<meta name="viewport">` to specify page supports mobile
     /// form factor.
     mobile: bool,
-    #[component(default)] title: String,
-    #[component(default)] style_sheets @ AttrVec(style_sheets): AttrVec<String>,
-    #[component(default)] scripts @ AttrVec(scripts): AttrVec<String>,
+    /// `<title>{}</title>`
     #[component(default)]
+    title: String,
+    /// `<link href="{}" rel="stylesheet">`
+    #[component(default)]
+    AttrVec(style_sheets): AttrVec<String>,
+    /// `<script src="{}">`
+    #[component(default)]
+    AttrVec(scripts): AttrVec<String>,
+    #[component(default)]
+    /// `<html lang="{lang}">`
     #[builder(setter(strip_option))]
     lang: Option<String>,
     children: Children,

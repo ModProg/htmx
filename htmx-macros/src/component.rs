@@ -2,8 +2,8 @@ use attribute_derive::{FlagOrValue, FromAttr};
 use manyhow::{bail, ensure, error_message, Result};
 use quote::ToTokens;
 use syn::{
-    parse2, Attribute, Expr, FnArg, Ident, ItemFn, ItemStruct, Pat, PatIdent, PatType, Signature,
-    Type,
+    parse2, Attribute, Expr, FnArg, Ident, ItemFn, ItemStruct, Pat, PatIdent, PatTupleStruct,
+    PatType, Signature, Type,
 };
 
 use crate::*;
@@ -73,23 +73,29 @@ pub fn component(_input: TokenStream, item: TokenStream) -> Result {
                 // hi
                 ensure!(let FnArg::Typed(PatType { mut attrs, pat, ty, .. }) = arg,
                     arg, "`self` is not supported");
-                ensure!(
-                    let Pat::Ident(PatIdent { by_ref, mutability, ident, subpat, .. }) = *pat,
-                    pat, "only named arguments are allowed";
-                    help = "use `ident @ {}`", pat.into_token_stream();
-                );
-                let subpat = subpat.map(|(_, pat)| pat).into_iter();
-                type_attrs(&ident, &ty, &mut attrs, htmx)?;
 
-                Ok((
-                    quote!(#(#attrs)* pub #ident: #ty,),
-                    quote!(#by_ref #mutability #ident #(: #subpat)*,),
-                ))
+                let ident = match &*pat {
+                    Pat::Ident(PatIdent { ident, .. }) => ident,
+                    // On tuples with a single field, take its ident
+                    Pat::TupleStruct(PatTupleStruct { elems, .. })
+                        if elems.len() == 1 && matches!(elems.first().unwrap(), Pat::Ident(_)) =>
+                    {
+                        let Some(Pat::Ident(PatIdent { ident, .. })) = elems.first() else {
+                            unreachable!("pat should contain a single ident")
+                        };
+                        ident
+                    }
+                    pat => bail!(pat, "only named arguments and new type patterns are allowed";
+                    help = "use `ident @ {}`", pat.into_token_stream();),
+                };
+
+                type_attrs(ident, &ty, &mut attrs, htmx)?;
+
+                Ok((quote!(#(#attrs)* pub #ident: #ty,), quote!(#ident: #pat,)))
             })
             .collect::<Result<Vec<_>>>()?
             .into_iter()
             .unzip();
-        eprintln!("{}", quote!( #(#fieldpats)* ));
 
         // #attrs #vis struct
         quote! {
@@ -104,6 +110,7 @@ pub fn component(_input: TokenStream, item: TokenStream) -> Result {
             }
 
             impl From<#ident> for Html {
+                #[allow(non_shorthand_field_patterns)]
                 fn from(#ident{ #(#fieldpats)* }: #ident) -> Html #block
             }
         }
@@ -186,7 +193,8 @@ fn type_attrs(
                 fn child(&mut self, $child: impl #htmx::ToHtml) {
                     self.#name.push($child);
                 }
-            ))]})
+            ))]});
+            attrs.push(parse_quote!(#[allow(missing_docs)]));
         }
     }
     attrs.push(parse_quote!(#[builder(setter(into))]));
