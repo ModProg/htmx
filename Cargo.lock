@@ -994,9 +994,9 @@ dependencies = [
 
 [[package]]
 name = "forr"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32112a3206aadc58f6ffbc0c1683a75d1e883b321453718b5dd8791f008bc7b6"
+checksum = "98649b3569ec5068a2116cb35f6297c53ed9ff583645b7a8691efaa989053a36"
 dependencies = [
  "manyhow 0.6.0",
  "proc-macro-utils",
@@ -1487,6 +1487,7 @@ dependencies = [
  "quote-use",
  "rstml",
  "syn 2.0.37",
+ "syn_derive",
 ]
 
 [[package]]

@@ -28,6 +28,7 @@ rstml.branch = "custom-tag-syntax"
 rstml.git = "https://github.com/ModProg/rstml"
 # we'll depend on full for now, because rstml does anyway
 syn = {version="2.0.29", features = ["full"]}
+syn_derive = "0.1.7"
 
 [package.metadata.release]
 shared-version = true

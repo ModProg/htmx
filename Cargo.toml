@@ -31,7 +31,7 @@ derive_more = { version = "1.0.0-beta.3", features = [
     "display",
 ] }
 html-escape = "0.2.13"
-forr = "0.2"
+forr = "0.2.1"
 actix-web = { version = "4.4.0", default-features = false, optional = true }
 axum-core = { version = "0.3.4", optional = true }
 serde = "1.0.188"

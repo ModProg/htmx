@@ -77,10 +77,12 @@ macro_rules! attr_fn{
 // Attributes that take values
 forr! { ($type:ty, $attrs:tt) in [
     (a, [download?, href, hreflang, ping, referrerpolicy, rel, target, type_="type"]),
+    (body, [onafterprint, onbefroeprint, onbeforeunload, onhashchange, onlanguagechange, onmessage, onoffline, ononline, onpopstate, onstorage, onundo, onunload]),
     (form, [accept_charset="accept-charset", autocomplete/*off|on*/, name, rel/*enum[]*/, action, enctype/*application/x-www-form-urlencoded, multipart/form-data, text/plain*/, method/*post|get|dialogp*/, novalidate<bool>, target/*_self|_blank|_parent|_top|...*/]),
     (button, [disabled<bool>, form, formaction, formenctype/*^^*/, formmethod/*^^*/, formnovalidate<bool>, formtarget/*^^*/, name, popovertarget, popovertargetaction/*hide|show|toggle*/, type_="type"/*submit|reset|button*/, value]),
     // TODO consider differentiating types
     (input, [accept, alt, autocomplete, capture, checked, disabled<bool>, form, formaction, formenctype/*^^*/, formmethod/*^^*/, formnovalidate<bool>, formtarget/*^^*/, height, max, maxlength, min, minlength, multiple, name, pattern, placeholder, popovertarget, popovertargetaction/*hide|show|toggle*/, readonly<bool>, required<bool>, size, src, step, type_="type"/*submit|reset|button*/, value, width]),
+    (link, [as_="as", crossorigin/*anonymous, use-credentials*/, disabled, href, hreflang, imagesizes, imagesrcset, integrity, media, referrerpolicy/*no-referrer,no-referrer-when-downgrade,origin,origin-when-cross-origin,unsafe-url*/, rel, type_="type"]),
     (html, [xmlns]),
     (meta, [charset, content, http_equiv="http-equiv"/*content-security-policy,content-type,default-style,x-ua-compatible,refresh*/, name]),
     (script, [async_="async"<bool>, crossorigin/*anonymous|use-credentials*/, defer<bool>, integrity, nomodule<bool>, referrerpolicy/*no-referrer|no-referrer-when-downgrade|origin|origin-when-cross-origin|same-origin|strict-origin|strict-origin-when-cross-origin|unsafe-url*/, src, type_="type"/*importmap|module|Mime*/])
@@ -92,7 +94,7 @@ forr! { ($type:ty, $attrs:tt) in [
     }
 }
 
-forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, html, meta, script, title] $*
+forr! { $type:ty in [a, body, div, h1, h2, h3, h4, h5, h6, form, button, input, link, head, html, meta, script, title] $*
 
     #[doc = concat!("The [`<", stringify!($type), ">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/", stringify!($type), ") element.")]
     #[must_use]
@@ -128,7 +130,9 @@ forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, 
             }
             write!(out.0, ">").unwrap();
             self.inner.write_to_html(out);
-            write!(out.0, concat!("</", stringify!($type) , ">")).unwrap();
+            iff!{!equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
+                write!(out.0, concat!("</", stringify!($type) , ">")).unwrap();
+            }
         }
     }
 
@@ -147,7 +151,7 @@ forr! { $type:ty in [a, div, h1, h2, h3, h4, h5, h6, form, button, input, head, 
             self
         }
 
-        iff! {!equals($type)(script) $:
+        iff! {!(equals($type)(script) || equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)]) $:
             /// Adds a child component or element.
             pub fn child(mut self, child: impl ToHtml) -> Self {
                 child.write_to_html(&mut self.inner);

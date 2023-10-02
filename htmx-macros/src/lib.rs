@@ -5,6 +5,15 @@ use quote_use::{
     parse_quote_use as parse_quote, quote_spanned_use as quote_spanned, quote_use as quote,
 };
 
+macro_rules! todo {
+    () => {
+        std::todo! {"{}:{}", file!(), line!()}
+    };
+    ($lit:literal $($tt:tt)*) => {
+        std::todo! {concat!(file!(), line!(), $lit) $($tt)*}
+    };
+}
+
 fn htmx_crate() -> TokenStream {
     match proc_macro_crate::crate_name("htmx") {
         Ok(FoundCrate::Name(name)) => {
@@ -14,6 +23,8 @@ fn htmx_crate() -> TokenStream {
         _ => quote!(::htmx),
     }
 }
+
+mod special_components;
 
 mod htmx;
 #[manyhow(proc_macro)]

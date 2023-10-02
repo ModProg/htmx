@@ -4,13 +4,14 @@ use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
 use rstml::atoms::OpenTag;
 use rstml::node::{
-    AttributeValueExpr, KeyedAttribute, KeyedAttributeValue, Node, NodeAttribute, NodeBlock,
-    NodeElement, NodeName,
+    AttributeValueExpr, KeyedAttribute, KeyedAttributeValue, NodeAttribute, NodeBlock, NodeElement,
+    NodeName,
 };
 use rstml::recoverable::Recoverable;
 use syn::spanned::Spanned;
 use syn::{parse2, ExprPath, LitStr};
 
+use crate::special_components::Node;
 use crate::*;
 
 pub fn htmx(input: TokenStream) -> Result {
@@ -41,21 +42,18 @@ pub fn htmx(input: TokenStream) -> Result {
             .raw_text_elements(["script"].into()),
     )
     // TODO parse_recoverable
-    .parse_simple(input.collect::<TokenStream>())?
+    .parse_custom(input.collect::<TokenStream>())?
     .into_iter()
-    .map(expand_node)
-    .collect::<Result<Vec<TokenStream>>>()?;
-    let mut nodes = nodes.into_iter().peekable();
+    .map(|n| expand_node(n, &htmx, false))
+    .collect::<Result>()?;
 
-    Ok(if nodes.peek().is_some() {
+    Ok(if !nodes.is_empty() {
         quote! {
         #use #htmx::{ToHtml, Html, IntoHtmlElements};
         {
             use #htmx::native::*;
             let mut $htmx = Html::new();
-            #(
-                ToHtml::write_to_html(&#nodes, &mut $htmx);
-            )*
+            #nodes
             $htmx
         }}
     } else {
@@ -63,7 +61,7 @@ pub fn htmx(input: TokenStream) -> Result {
     })
 }
 
-fn expand_node(node: Node) -> Result {
+pub fn expand_node(node: Node, htmx: &TokenStream, child: bool) -> Result {
     Ok(match node {
         Node::Comment(_) => todo!("{}", line!()),
         Node::Doctype(_) => todo!("{}", line!()),
@@ -104,34 +102,48 @@ fn expand_node(node: Node) -> Result {
                 };
                 let script = script.into_token_stream();
                 if let Ok(script) = parse2::<LitStr>(script.clone()) {
-                    quote!(.child(#script))
+                    quote!($node = $node.child(#script);)
                 } else if let Ok(block) =
                     parse2::<Recoverable<NodeBlock>>(script.clone()).map(Recoverable::inner)
                 {
-                    quote!( .child({#[allow(unused_braces)] #block}))
+                    quote!($node = $node.child({#[allow(unused_braces)] #block});)
                 } else {
                     let script: Script = parse2(script)?;
                     let script = script.to_java_script();
-                    quote!(.child(#script))
+                    quote!($node = $node.child(#script);)
                 }
             } else {
-                let children = children
-                    .into_iter()
-                    .map(expand_node)
-                    .collect::<Result<Vec<_>>>()?;
-                quote!(#(.child(#children))*)
+                expand_nodes(children, htmx, true)?
             };
-            let main = quote!(#name::builder() #(.#attributes)* #children .build());
-            match close_tag.map(|tag| name_to_struct(tag.name)) {
+            let main = quote!({let mut $node = #name::builder() #(.#attributes)*; #children $node.build()});
+            let main = match close_tag.map(|tag| name_to_struct(tag.name)) {
                 // If close_tag was specified, use it so coloring happens
                 Some(Ok(close_tag)) if close_tag == name => quote!({let _ :#close_tag;#main}),
                 _ => main,
+            };
+            if child {
+                quote!($node = $node.child(&#main);)
+            } else {
+                quote!(#htmx::ToHtml::write_to_html(&#main, &mut $htmx);)
             }
         }
-        Node::Block(_) | Node::Text(_) => quote!( {#[allow(unused_braces)] #node}),
+        Node::Block(_) | Node::Text(_) => {
+            if child {
+                quote!($node = $node.child(&{#[allow(unused_braces)] #node});)
+            } else {
+                quote!(#htmx::ToHtml::write_to_html(&{#[allow(unused_braces)] #node}, &mut $htmx);)
+            }
+        }
         Node::RawText(_) => todo!("{}", line!()),
-        Node::Custom(c) => match c {},
+        Node::Custom(c) => c.expand_node(htmx, child)?,
     })
+}
+
+pub fn expand_nodes(nodes: Vec<Node>, htmx: &TokenStream, child: bool) -> Result {
+    nodes
+        .into_iter()
+        .map(|n| expand_node(n, htmx, child))
+        .collect()
 }
 
 fn name_to_struct(name: NodeName) -> Result<ExprPath> {
