@@ -59,12 +59,14 @@ fn parse_nodes<'a>(
 pub enum Special {
     If(If),
     For(For),
+    While(While),
 }
 impl Special {
     pub(crate) fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
         match self {
             Special::If(if_) => if_.expand_node(htmx, child),
             Special::For(for_) => for_.expand_node(htmx, child),
+            Special::While(while_) => while_.expand_node(htmx, child),
         }
     }
 }
@@ -75,13 +77,14 @@ impl CustomNode for Special {
     }
 
     fn peek_element(input: ParseStream) -> bool {
-        input.peek(Token![if]) || input.peek(Token![for])
+        input.peek(Token![if]) || input.peek(Token![for]) || input.peek(Token![while])
     }
 
     fn parse_element(parser: &mut RecoverableContext, input: ParseStream) -> Option<Self> {
         match () {
             () if input.peek(Token![if]) => parser.parse_recoverable(input).map(Self::If),
             () if input.peek(Token![for]) => parser.parse_recoverable(input).map(Self::For),
+            () if input.peek(Token![while]) => parser.parse_recoverable(input).map(Self::While),
             _ => unreachable!("`peek_element` should only peek valid keywords"),
         }
     }
@@ -218,6 +221,42 @@ impl ParseRecoverable for For {
             for_token: parser.parse_simple(input)?,
             pat: parser.save_diagnostics(syn::Pat::parse_multi_with_leading_vert(input))?,
             in_token: parser.parse_simple(input)?,
+            expr: parser.save_diagnostics(Expr::parse_without_eager_brace(input))?,
+            brace: braced!(body in parser, input),
+            body: parse_nodes(parser, body),
+        })
+    }
+}
+
+#[derive(Debug, ToTokens)]
+pub struct While {
+    pub while_token: Token![while],
+    pub expr: Expr,
+    #[syn(braced)]
+    pub brace: Brace,
+    #[syn(in = brace)]
+    #[to_tokens(TokenStreamExt::append_all)]
+    pub body: Vec<Node>,
+}
+
+impl While {
+    fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
+        let Self {
+            while_token,
+            expr,
+            body,
+            ..
+        } = self;
+        let body = expand_nodes(body, htmx, child)?;
+        Ok(quote!(#while_token #expr { #body }))
+    }
+}
+
+impl ParseRecoverable for While {
+    fn parse_recoverable(parser: &mut RecoverableContext, input: ParseStream) -> Option<Self> {
+        let body;
+        Some(Self {
+            while_token: parser.parse_simple(input)?,
             expr: parser.save_diagnostics(Expr::parse_without_eager_brace(input))?,
             brace: braced!(body in parser, input),
             body: parse_nodes(parser, body),
