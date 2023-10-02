@@ -1,0 +1,5 @@
+---
+source: tests/native.rs
+expression: "htmx! {\n            < del datetime =\n            Utc.with_ymd_and_hms(2023, 10, 2, 21, 41, 36).unwrap() > \"Deleted\"\n            < / del > < object data = \"hello\" / >\n        }.to_string()"
+---
+<!DOCTYPE html><del datetime="2023-10-02T21:41:36+00:00"> Deleted </del><object data="hello"></object>

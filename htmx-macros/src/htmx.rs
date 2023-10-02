@@ -165,10 +165,8 @@ fn attribute_key_to_fn(name: NodeName, value: impl ToTokens) -> Result {
                 .map(|i| i.ident.to_string().replace('_', "-"))
                 .collect::<Vec<_>>()
                 .join("-");
-            if let Some(sident) = sident.strip_prefix("data-") {
-                quote_spanned!(path.span()=> data(#sident, #value))
-            } else if sident.starts_with("hx-") {
-                quote_spanned!(path.span()=> data(#sident, #value))
+            if sident.starts_with("data-") || sident.starts_with("hx-"){
+                quote_spanned!(path.span()=> custom_attr(#sident, #value))
             } else if let Some(ident) = path.get_ident() {
                 quote!(#ident(#value))
             } else {

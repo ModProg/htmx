@@ -22,14 +22,7 @@ axum = ["dep:axum-core"]
 html = "0.6.1"
 quote-use = { version = "0.7.1", features = ["namespace_idents"] }
 htmx-macros = { version = "0.1.0", path = "htmx-macros" }
-derive_more = { version = "1.0.0-beta.3", features = [
-    "as_ref",
-    "deref",
-    "deref_mut",
-    "from",
-    "constructor",
-    "display",
-] }
+derive_more = { version = "1.0.0-beta.3", features = ["as_ref", "deref", "deref_mut", "from", "constructor", "display"] }
 html-escape = "0.2.13"
 forr = "0.2.1"
 actix-web = { version = "4.4.0", default-features = false, optional = true }
@@ -37,6 +30,7 @@ axum-core = { version = "0.3.4", optional = true }
 serde = "1.0.188"
 serde_json = "1.0.107"
 typed-builder = {git = "https://github.com/ModProg/rust-typed-builder", branch = "mutators"}
+chrono = "0.4.31"
 
 [dev-dependencies]
 insta = "1.31.0"
