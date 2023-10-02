@@ -82,3 +82,14 @@ fn fn_component() {
         .to_string()
     );
 }
+
+#[test]
+fn reserved_attributes() {
+    insta::assert_snapshot!(
+        htmx! {
+            <script type_="module" />
+            <script async_=true />
+        }
+        .to_string()
+    );
+}

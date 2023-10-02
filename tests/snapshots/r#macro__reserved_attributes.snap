@@ -1,0 +1,6 @@
+---
+source: tests/macro.rs
+assertion_line: 84
+expression: "htmx! { < script type_ = \"module\" / > < script async_ = true / > }.to_string()"
+---
+<!DOCTYPE html><script type="module"></script><script async></script>

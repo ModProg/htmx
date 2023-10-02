@@ -36,10 +36,10 @@ macro_rules! attribute {
         attribute!($elem|$name=$actual<String>);
     };
     ($elem:ident|$name:ident < $type:ty >) => {
-        attribute!($elem|$name=(stringify!($name))<$type>);
+        attribute!($elem, $name, stringify!($name), impl IntoAttribute<Target = $type>);
     };
     ($elem:ident|$name:ident=$actual:tt< $type:ty >) => {
-        attribute!($elem, $name, stringify!($name), impl IntoAttribute<Target = $type>);
+        attribute!($elem, $name, $actual, impl IntoAttribute<Target = $type>);
     };
     ($elem:ident|$name:ident?) => {
         attribute!($elem, $name, stringify!($name), impl FlagOrAttributeValue);
