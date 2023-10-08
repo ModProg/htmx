@@ -106,3 +106,15 @@ fn custom_element() {
         .to_string()
     );
 }
+
+#[test]
+fn raw_html() {
+    use htmx::RawHtml;
+    insta::assert_snapshot!(
+        htmx! {
+            "this < will be > escaped "
+            <RawHtml("This < will > not")/>
+        }
+        .to_string()
+    );
+}

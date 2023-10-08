@@ -1,0 +1,5 @@
+---
+source: src/lib.rs
+expression: "htmx! { \"this < will be > escaped \" < RawHtml(\"This < will > not\") / > }"
+---
+<!DOCTYPE html>this &lt; will be &gt; escaped This < will > not

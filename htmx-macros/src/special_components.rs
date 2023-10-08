@@ -7,8 +7,9 @@ use quote::{ToTokens, TokenStreamExt};
 use rstml::node::CustomNode;
 use rstml::recoverable::{ParseRecoverable, RecoverableContext};
 use syn::parse::{ParseBuffer, ParseStream};
-use syn::token::Brace;
-use syn::{Expr, Token};
+use syn::punctuated::Punctuated;
+use syn::token::{Brace, Paren};
+use syn::{Expr, ExprPath, Token};
 use syn_derive::ToTokens;
 
 use crate::htmx::{expand_node, expand_nodes};
@@ -23,6 +24,16 @@ macro_rules! braced {($name:ident in $parser:expr, $input:expr) => {{
         })())?;
     $name = brace.1;
     brace.0
+}};}
+
+macro_rules! parenthesized {($name:ident in $parser:expr, $input:expr) => {{
+    let paren = $parser.save_diagnostics((|| {
+        let content;
+        let paren = syn::parenthesized!(content in $input);
+        Ok((paren, content))
+        })())?;
+    $name = paren.1;
+    paren.0
 }};}
 
 fn parse_nodes<'a>(
@@ -60,6 +71,7 @@ pub enum Special {
     If(If),
     For(For),
     While(While),
+    FunctionCall(FunctionCall),
 }
 impl Special {
     pub(crate) fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
@@ -67,6 +79,7 @@ impl Special {
             Special::If(if_) => if_.expand_node(htmx, child),
             Special::For(for_) => for_.expand_node(htmx, child),
             Special::While(while_) => while_.expand_node(htmx, child),
+            Special::FunctionCall(function_call) => function_call.expand_node(htmx, child),
         }
     }
 }
@@ -77,7 +90,13 @@ impl CustomNode for Special {
     }
 
     fn peek_element(input: ParseStream) -> bool {
-        input.peek(Token![if]) || input.peek(Token![for]) || input.peek(Token![while])
+        let fork = input.fork();
+        input.peek(Token![if])
+            || input.peek(Token![for])
+            || input.peek(Token![while])
+            || fork.parse::<Token![<]>().is_ok()
+                && fork.parse::<ExprPath>().is_ok()
+                && fork.peek(Paren)
     }
 
     fn parse_element(parser: &mut RecoverableContext, input: ParseStream) -> Option<Self> {
@@ -85,6 +104,7 @@ impl CustomNode for Special {
             () if input.peek(Token![if]) => parser.parse_recoverable(input).map(Self::If),
             () if input.peek(Token![for]) => parser.parse_recoverable(input).map(Self::For),
             () if input.peek(Token![while]) => parser.parse_recoverable(input).map(Self::While),
+            () if input.peek(Token![<]) => parser.parse_recoverable(input).map(Self::FunctionCall),
             _ => unreachable!("`peek_element` should only peek valid keywords"),
         }
     }
@@ -260,6 +280,45 @@ impl ParseRecoverable for While {
             expr: parser.save_diagnostics(Expr::parse_without_eager_brace(input))?,
             brace: braced!(body in parser, input),
             body: parse_nodes(parser, body),
+        })
+    }
+}
+
+#[derive(Debug, ToTokens)]
+pub struct FunctionCall {
+    pub open_token: Token![<],
+    pub function: ExprPath,
+    #[syn(parenthesized)]
+    pub paren: Paren,
+    #[syn(in = paren)]
+    #[to_tokens(TokenStreamExt::append_all)]
+    pub args: Punctuated<Expr, Token![,]>,
+    pub slash: Token![/],
+    pub gt_token: Token![>],
+}
+
+impl FunctionCall {
+    fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
+        let Self { function, args, .. } = self;
+        let args = args.into_iter();
+        Ok(if child {
+            quote!($node = $node.child(&#function(#(Into::into(#args),)*));)
+        } else {
+            quote!(#htmx::ToHtml::write_to_html(&#function(#(Into::into(#args),)*), &mut $htmx);)
+        })
+    }
+}
+
+impl ParseRecoverable for FunctionCall {
+    fn parse_recoverable(parser: &mut RecoverableContext, input: ParseStream) -> Option<Self> {
+        let args;
+        Some(Self {
+            open_token: parser.parse_simple(input)?,
+            function: parser.parse_simple(input)?,
+            paren: parenthesized!(args in parser, input),
+            args: parser.save_diagnostics(Punctuated::parse_terminated(&args))?,
+            slash: parser.parse_simple(input)?,
+            gt_token: parser.parse_simple(input)?,
         })
     }
 }

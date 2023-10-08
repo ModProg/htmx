@@ -1,0 +1,5 @@
+---
+source: tests/macro.rs
+expression: "htmx! {\n            \"this < will be > escaped \" < RawHtml(\"This < will > not\") / >\n        }.to_string()"
+---
+<!DOCTYPE html>this &lt; will be &gt; escaped This < will > not

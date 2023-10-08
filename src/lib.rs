@@ -556,3 +556,40 @@ impl ToHtml for CustomElement {
         write!(out.0, "</{}>", self.name).unwrap();
     }
 }
+
+/// Puts content directly into HTML bypassing HTML-escaping.
+///
+/// ```
+/// # use htmx::{htmx, RawHtml};
+/// # insta::assert_display_snapshot!("doc-RawHtml",
+/// htmx! {
+///     "this < will be > escaped "
+///     <RawHtml("This < will > not")/>
+/// }
+/// # );
+/// ```
+pub struct RawHtml<'a>(pub Cow<'a, str>);
+
+impl<'a> RawHtml<'a> {
+    /// Creates a new `RawHtml`.
+    pub fn new(content: impl Into<Cow<'a, str>>) -> Self {
+        Self(content.into())
+    }
+}
+
+impl ToHtml for RawHtml<'_> {
+    fn write_to_html(&self, html: &mut Html) {
+        html.0.push_str(&self.0);
+    }
+
+    fn to_html(&self) -> Html {
+        Html(self.0.to_string())
+    }
+
+    fn into_html(self) -> Html
+    where
+        Self: Sized,
+    {
+        Html(self.0.into())
+    }
+}
