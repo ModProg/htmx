@@ -1,0 +1,5 @@
+---
+source: src/lib.rs
+expression: "htmx! {\n        < div >\n        \"Literal text is put directly into HTML though <html> escaping is performed.\"\n        \" All whitespace that should be preserved needs to be inside a string literal.\"\n        < a href = link > { link } < / a > < web - component some_attr =\n        \"hello\" / > < { \"string_name\" } >\n        \"Custom elements also accept children\" < / _ > < div { \"custom-attr\" }\n        / > if 1 < 2\n        {\n            while let Some(c) = chars.next() { { c } \", \" } < br / > for c in\n            link.chars() { { c } \", \" }\n        } < / _ >\n    }"
+---
+<!DOCTYPE html><div>Literal text is put directly into HTML though &lt;html&gt; escaping is performed. All whitespace that should be preserved needs to be inside a string literal.<a href="example.com">example.com</a><web-component some_attr="hello"></web-component><string_name>Custom elements also accept children</string_name><div custom-attr></div>e, x, a, m, p, l, e, ., c, o, m, <br>e, x, a, m, p, l, e, ., c, o, m, </div>

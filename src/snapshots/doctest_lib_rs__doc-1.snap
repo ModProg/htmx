@@ -1,0 +1,5 @@
+---
+source: src/lib.rs
+expression: "htmx! {\n        < div > \"Some literal text \" < a href = link > { link } < / a > if 1 <\n        2\n        {\n            < p > < code > \"if\" < / code > \", \" < code > \"for\" < / code >\n            \", and \" < code > \"while\" < / code > \" can be used as well.\" < / p\n            >\n        } < / _ >\n    }"
+---
+<!DOCTYPE html><div>Some literal text <a href="example.com">example.com</a><p><code>if</code>, <code>for</code>, and <code>while</code> can be used as well.</p></div>

@@ -1,0 +1,5 @@
+---
+source: src/lib.rs
+expression: "htmx! { < Custom name = \"link\" link / > \" \" < Custom name = \"normal\" / > }"
+---
+<!DOCTYPE html><a href="example.com/link">link</a> normal

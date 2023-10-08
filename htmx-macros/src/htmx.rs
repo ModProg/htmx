@@ -1,15 +1,15 @@
 use htmx_script::{Script, ToJs};
-use manyhow::{bail, Result};
+use manyhow::{ensure, Result};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
-use rstml::atoms::OpenTag;
+use rstml::atoms::{CloseTag, OpenTag};
 use rstml::node::{
     AttributeValueExpr, KeyedAttribute, KeyedAttributeValue, NodeAttribute, NodeBlock, NodeElement,
     NodeName,
 };
 use rstml::recoverable::Recoverable;
 use syn::spanned::Spanned;
-use syn::{parse2, ExprPath, LitStr};
+use syn::{parse2, Expr, ExprLit, ExprPath, Lit, LitStr, Stmt};
 
 use crate::special_components::Node;
 use crate::*;
@@ -35,6 +35,10 @@ pub fn htmx(input: TokenStream) -> Result {
         _ => htmx,
     };
 
+    if input.peek().is_none() {
+        return Ok(quote!(#htmx::Html::new()));
+    }
+
     let nodes = rstml::Parser::new(
         rstml::ParserConfig::new()
             .recover_block(true)
@@ -47,17 +51,14 @@ pub fn htmx(input: TokenStream) -> Result {
     .map(|n| expand_node(n, &htmx, false))
     .collect::<Result>()?;
 
-    Ok(if !nodes.is_empty() {
-        quote! {
+    Ok(quote! {
         #use #htmx::{ToHtml, Html, IntoHtmlElements};
         {
             use #htmx::native::*;
             let mut $htmx = Html::new();
             #nodes
             $htmx
-        }}
-    } else {
-        quote!(#htmx::Html::new())
+        }
     })
 }
 
@@ -75,22 +76,20 @@ pub fn expand_node(node: Node, htmx: &TokenStream, child: bool) -> Result {
             ..
         }) => {
             let script = name.to_string() == "script";
-            let name = name_to_struct(name)?;
+            let (name, custom) = name_to_struct(name, htmx)?;
             let attributes = attributes
                 .into_iter()
                 .map(|attribute| match attribute {
-                    NodeAttribute::Block(_) => {
-                        bail!(attribute, "dynamic attribute names not supported")
-                    }
+                    NodeAttribute::Block(attr) => Ok(quote!(custom_attr(#attr, true))),
                     NodeAttribute::Attribute(KeyedAttribute {
                         key,
                         possible_value,
                     }) => match possible_value {
                         KeyedAttributeValue::Binding(_) => todo!("{}", line!()),
                         KeyedAttributeValue::Value(AttributeValueExpr { value, .. }) => {
-                            attribute_key_to_fn(key, value)
+                            attribute_key_to_fn(key, value, custom)
                         }
-                        KeyedAttributeValue::None => attribute_key_to_fn(key, true),
+                        KeyedAttributeValue::None => attribute_key_to_fn(key, true, custom),
                     },
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -115,10 +114,16 @@ pub fn expand_node(node: Node, htmx: &TokenStream, child: bool) -> Result {
             } else {
                 expand_nodes(children, htmx, true)?
             };
-            let main = quote!({let mut $node = #name::builder() #(.#attributes)*; #children $node.build()});
-            let main = match close_tag.map(|tag| name_to_struct(tag.name)) {
-                // If close_tag was specified, use it so coloring happens
-                Some(Ok(close_tag)) if close_tag == name => quote!({let _ :#close_tag;#main}),
+            let main = quote!({let mut $node = #name #(.#attributes)*; #children $node.build()});
+
+            let main = match close_tag {
+                Some(CloseTag {
+                    name: name @ NodeName::Path(_),
+                    ..
+                }) if !name.is_wildcard() => {
+                    // If close_tag was specified, use it so coloring happens
+                    quote!({let _: #name; #main})
+                }
                 _ => main,
             };
             if child {
@@ -146,42 +151,64 @@ pub fn expand_nodes(nodes: Vec<Node>, htmx: &TokenStream, child: bool) -> Result
         .collect()
 }
 
-fn name_to_struct(name: NodeName) -> Result<ExprPath> {
+fn name_to_struct(name: NodeName, htmx: &TokenStream) -> Result<(TokenStream, bool)> {
     match name {
-        NodeName::Path(path) => Ok(path),
+        NodeName::Path(path) => Ok((quote!(#path::builder()), false)),
+        name @ NodeName::Punctuated(_) => {
+            let name = name.to_string();
+            ensure!(name.to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
+         "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
+        );
+            Ok((quote!(#htmx::CustomElement::new_unchecked(#name)), true))
+        }
         // This {...}
-        NodeName::Punctuated(_) | NodeName::Block(_) => {
-            bail!(name, "Only normal identifiers are allowd as node names")
+        NodeName::Block(name) => {
+            if let [
+                Stmt::Expr(
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Str(name),
+                        ..
+                    }),
+                    None,
+                ),
+            ] = &name.stmts[..]
+            {
+                let name = name.value();
+                ensure!(name.to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
+                 "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
+                );
+                Ok((quote!(#htmx::CustomElement::new_unchecked(#name)), true))
+            } else {
+                Ok((quote!(#htmx::CustomElement::new(#name)), true))
+            }
         }
     }
 }
 
-fn attribute_key_to_fn(name: NodeName, value: impl ToTokens) -> Result {
-    match name {
-        NodeName::Path(ExprPath { path, .. }) => Ok({
-            let sident = path
-                .segments
-                .iter()
-                .map(|i| i.ident.to_string().replace('_', "-"))
-                .collect::<Vec<_>>()
-                .join("-");
-            if sident.starts_with("data-") || sident.starts_with("hx-"){
+fn attribute_key_to_fn(name: NodeName, value: impl ToTokens, custom: bool) -> Result {
+    Ok(match name {
+        NodeName::Path(ExprPath { path, .. }) if !custom && path.get_ident().is_some() => {
+            quote!(#path(#value))
+        }
+        NodeName::Path(ExprPath { path, .. })
+            if path.segments.first().is_some_and(|hx| hx.ident == "hx") =>
+        {
+            {
+                let sident = path
+                    .segments
+                    .iter()
+                    .map(|i| i.ident.to_string().replace('_', "-"))
+                    // hx::swap::oob
+                    .collect::<Vec<_>>()
+                    .join("-");
                 quote_spanned!(path.span()=> custom_attr(#sident, #value))
-            } else if let Some(ident) = path.get_ident() {
-                quote!(#ident(#value))
-            } else {
-                bail!(path, "only `data::` or `hx::` are allowed as path prefix");
             }
-        }),
+        }
         // This {...}
-        NodeName::Punctuated(_) => {
-            todo!("handle data-...")
+        name @ (NodeName::Punctuated(_) | NodeName::Path(_)) => {
+            let sname = name.to_string();
+            quote_spanned!(name.span()=>  custom_attr(#sname, #value))
         }
-        NodeName::Block(_) => {
-            bail!(
-                name,
-                "Only normal identifiers are allowd as attribute names"
-            )
-        }
-    }
+        name @ NodeName::Block(_) => quote_spanned!(name.span()=>  custom_attr(#name, #value)),
+    })
 }

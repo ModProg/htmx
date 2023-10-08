@@ -5,20 +5,26 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use derive_more::Display;
 use forr::{forr, iff};
 use html_escape::encode_double_quoted_attribute;
 
 use crate::attributes::{
-    AnyAttributeValue, DateTime, FlagOrAttributeValue, IntoAttribute, Number, ValueOrFlag, TimeDateTime
+    AnyAttributeValue, DateTime, FlagOrAttributeValue, IntoAttribute, Number, TimeDateTime,
+    ValueOrFlag,
 };
 use crate::{Html, ToHtml};
 
 forr! {$type:ty in [&str, String, Cow<'_, str>]$*
     impl ToHtml for $type {
         fn write_to_html(&self, out: &mut Html) {
-            write!(out.0, " {} ", html_escape::encode_text(&self)).unwrap()
+            write!(out.0, "{}", html_escape::encode_text(&self)).unwrap();
         }
+    }
+}
+
+impl ToHtml for char {
+    fn write_to_html(&self, out: &mut Html) {
+        write!(out.0, "{}", html_escape::encode_text(&self.to_string())).unwrap();
     }
 }
 
@@ -166,10 +172,9 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
             #[cfg(not(feature="sorted_attributes"))]
             let attributes = &self.attributes;
             for (key, value) in attributes {
-                // https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0
                 debug_assert!(!key.chars().any(|c| c.is_whitespace()
                     || c.is_control()
-                    || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')));
+                    || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
                 match value {
                     ValueOrFlag::Value(value) => {
                         write!(out.0, " {key}=\"{}\"", encode_double_quoted_attribute(value)).unwrap();
@@ -181,7 +186,7 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
             write!(out.0, ">").unwrap();
             self.inner.write_to_html(out);
             iff!{!equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
-                write!(out.0, concat!("</", stringify!($type) , ">")).unwrap();
+                write!(out.0, concat!("</", stringify!($type), ">")).unwrap();
             }
         }
     }
@@ -228,11 +233,34 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         /// Sets a custom attribute.
         ///
         /// Useful for setting, e.g., `data-{key}`.
-        pub fn custom_attr(mut self, key: impl Display, value: impl AnyAttributeValue) -> Self
+        ///
+        /// # Panics
+        /// Panics on [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0).
+        pub fn custom_attr(mut self, key: impl Into<Cow<'static, str>>, value: impl AnyAttributeValue) -> Self
         {
+            let key = key.into();
+        assert!(!key.chars().any(|c| c.is_whitespace()
+            || c.is_control()
+            || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
             self.attributes.insert(key.to_string().into(), value.into_attribute());
             self
         }
+
+        /// Sets a custom attribute, without checking for valid keys.
+        ///
+        /// Useful for setting, e.g., `data-{key}`.
+        ///
+        /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
+        pub fn custom_attr_unchecked(mut self, key: impl Into<Cow<'static, str>>, value: impl AnyAttributeValue) -> Self
+        {
+            let key = key.into();
+        assert!(!key.chars().any(|c| c.is_whitespace()
+            || c.is_control()
+            || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+            self.attributes.insert(key.to_string().into(), value.into_attribute());
+            self
+        }
+
 
         // Global attributes
         forr! { $attr:ty in [

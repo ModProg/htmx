@@ -1,5 +1,5 @@
+use chrono::{TimeZone, Utc};
 use htmx::htmx;
-use chrono::{Utc, TimeZone};
 
 #[test]
 fn native() {

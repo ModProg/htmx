@@ -37,7 +37,7 @@ fn test() {
 }
 
 #[test]
-fn struct_componentr() {
+fn struct_component() {
     #[component]
     struct Component {
         a: bool,
@@ -89,6 +89,19 @@ fn reserved_attributes() {
         htmx! {
             <script type_="module" />
             <script async_=true />
+        }
+        .to_string()
+    );
+}
+
+#[test]
+fn custom_element() {
+    insta::assert_snapshot!(
+        htmx! {
+            <custom-element attr="module">
+                <p> "This is a child" </p>
+            </_>
+            <{"div"} custom_div="hello"> </_>
         }
         .to_string()
     );

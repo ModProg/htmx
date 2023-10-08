@@ -25,8 +25,8 @@ async fn index() -> impl IntoResponse {
 
 async fn greet(Form(form): Form<HashMap<String, String>>) -> impl IntoResponse {
     htmx! {
-        "Hello"
-        {form.get("name").map(|name| format!("{name}!"))}
+        "Hello "
+        {form.get("name").map(|name| format!("{name}! "))}
         <a href="/"> ":D" </a>
     }
 }

@@ -16,7 +16,6 @@ impl From<Component> for Html {
         let mut html = Html::new();
         htmx::native::div::builder()
             .child(children)
-            .build()
             .write_to_html(&mut html);
         html
     }
@@ -27,7 +26,7 @@ fn test() {
     insta::assert_snapshot!(
         Component::builder()
             .child("hello")
-            .child("world")
+            .child(" world")
             .build()
             .to_string()
     )

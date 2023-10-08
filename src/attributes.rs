@@ -11,7 +11,7 @@ pub struct Number;
 /// An attribute that accepts a date and time.
 pub struct DateTime;
 
-/// An attribute that can be just set or set to a value.
+/// An attribute that can be set as a flag or set to a value.
 pub enum ValueOrFlag {
     /// Attribute is set to a value.
     Value(String),
@@ -115,6 +115,9 @@ impl<T: IntoAttribute> AnyAttributeValue for T {
 }
 
 /// An attribute that accepts the datetime according to [`<time>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/time#valid_datetime_values).
+///
+/// The most important implementers are the [`chrono`](::chrono) types as well
+/// as the tuples for [`Year`], [`Week`] and [`Day`].
 pub trait TimeDateTime {
     /// Converts into value.
     fn into_attribute(self) -> ValueOrFlag;
@@ -158,10 +161,11 @@ impl Week {
 
 mod chrono {
     use chrono::{
-        DateTime, FixedOffset, Local, Month, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc, Duration,
+        DateTime, Duration, FixedOffset, Local, Month, NaiveDate, NaiveDateTime, NaiveTime,
+        TimeZone, Utc,
     };
 
-    use super::{Day, IntoAttribute, TimeDateTime, ValueOrFlag, Year, Week};
+    use super::{Day, IntoAttribute, TimeDateTime, ValueOrFlag, Week, Year};
 
     impl<Tz: TimeZone> IntoAttribute for DateTime<Tz> {
         type Target = super::DateTime;

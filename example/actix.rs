@@ -34,8 +34,8 @@ async fn index() -> impl Responder {
 #[post("/greet")]
 async fn greet(Form(form): Form<HashMap<String, String>>) -> impl Responder {
     htmx! {
-        "Hello"
-        {form.get("name").map(|name| format!("{name}!"))}
+        "Hello "
+        {form.get("name").map(|name| format!("{name}! "))}
         <a href="/"> ":D" </a>
     }
 }

@@ -1,0 +1,5 @@
+---
+source: tests/macro.rs
+expression: "htmx! {\n            < custom - element attr = \"module\" > < p > \"This is a child\" < / p\n            > < / _ > < { \"div\" } custom_div = \"hello\" > < / _ >\n        }.to_string()"
+---
+<!DOCTYPE html><custom-element attr="module"><p>This is a child</p></custom-element><div custom_div="hello"></div>

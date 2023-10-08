@@ -29,8 +29,8 @@ fn index() -> Html {
 
 fn greet(name: impl Display) -> Html {
     htmx! {
-        "Hello"
-        {format!("{name}!")}
+        "Hello "
+        {format!("{name}! ")}
         <a href="/"> ":D" </a>
     }
 }
