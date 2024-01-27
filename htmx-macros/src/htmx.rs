@@ -43,10 +43,11 @@ pub fn htmx(input: TokenStream) -> Result {
         rstml::ParserConfig::new()
             .recover_block(true)
             .element_close_use_default_wildcard_ident(false)
-            .raw_text_elements(["script"].into()),
+            .raw_text_elements(["script"].into())
+            .custom_node(),
     )
     // TODO parse_recoverable
-    .parse_custom(input.collect::<TokenStream>())?
+    .parse_simple(input.collect::<TokenStream>())?
     .into_iter()
     .map(|n| expand_node(n, &htmx, false))
     .collect::<Result>()?;
