@@ -13,7 +13,7 @@ pub struct HtmxSrc;
 
 impl HtmxSrc {
     /// HTMX source.
-    pub const HTMX_SRC: &str = include_str!("htmx.min.js");
+    pub const HTMX_SRC: &'static str = include_str!("htmx.min.js");
 
     // Only exist because I'm lazy
     #[doc(hidden)]
