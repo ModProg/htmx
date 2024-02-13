@@ -28,6 +28,35 @@ impl ToHtml for char {
     }
 }
 
+macro_rules! primitive_to_html {
+    ($t:ty) => {
+        impl $crate::ToHtml for $t {
+            fn write_to_html(&self, out: &mut Html) {
+                write!(out.0, "{}", html_escape::encode_text(&self.to_string())).unwrap();
+            }
+        }
+    };
+}
+
+primitive_to_html!(bool);
+primitive_to_html!(u8);
+primitive_to_html!(u16);
+primitive_to_html!(u32);
+primitive_to_html!(u64);
+primitive_to_html!(u128);
+primitive_to_html!(usize);
+
+primitive_to_html!(i8);
+primitive_to_html!(i16);
+primitive_to_html!(i32);
+primitive_to_html!(i64);
+primitive_to_html!(i128);
+primitive_to_html!(isize);
+
+primitive_to_html!(f32);
+primitive_to_html!(f64);
+
+
 struct ScriptContent(Cow<'static, str>);
 
 impl ToHtml for ScriptContent {
