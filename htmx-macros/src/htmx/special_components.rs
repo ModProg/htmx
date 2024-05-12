@@ -12,7 +12,7 @@ use syn::token::{Brace, Paren};
 use syn::{Expr, ExprPath, Token};
 use syn_derive::ToTokens;
 
-use crate::htmx::{expand_node, expand_nodes};
+use super::html::{expand_node, expand_nodes};
 use crate::*;
 pub type Node = rstml::node::Node<Special>;
 
@@ -73,13 +73,14 @@ pub enum Special {
     While(While),
     FunctionCall(FunctionCall),
 }
+
 impl Special {
-    pub(crate) fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
+    pub(crate) fn expand_node(self, child: bool) -> Result {
         match self {
-            Special::If(if_) => if_.expand_node(htmx, child),
-            Special::For(for_) => for_.expand_node(htmx, child),
-            Special::While(while_) => while_.expand_node(htmx, child),
-            Special::FunctionCall(function_call) => function_call.expand_node(htmx, child),
+            Special::If(if_) => if_.expand_node(child),
+            Special::For(for_) => for_.expand_node(child),
+            Special::While(while_) => while_.expand_node(child),
+            Special::FunctionCall(function_call) => function_call.expand_node(child),
         }
     }
 }
@@ -123,7 +124,7 @@ pub struct If {
 }
 
 impl If {
-    fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
+    fn expand_node(self, child: bool) -> Result {
         let If {
             if_token,
             condition,
@@ -133,9 +134,9 @@ impl If {
         } = self;
         let body = then_branch
             .into_iter()
-            .map(|n| expand_node(n, htmx, child))
+            .map(|n| expand_node(n, child))
             .collect::<Result>()?;
-        let else_branch = else_branch.expand_node(htmx, child)?;
+        let else_branch = else_branch.expand_node(child)?;
         Ok(quote! {
             #if_token #condition {
                 #body
@@ -161,17 +162,17 @@ pub enum ElseBranch {
     },
 }
 impl ElseBranch {
-    fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
+    fn expand_node(self, child: bool) -> Result {
         Ok(match self {
             ElseBranch::None => quote!(),
             ElseBranch::Else {
                 else_token, body, ..
             } => {
-                let body = expand_nodes(body, htmx, child)?;
+                let body = expand_nodes(body, child)?;
                 quote!( #else_token {#body} )
             }
             ElseBranch::ElseIf { else_token, body } => {
-                let body = body.expand_node(htmx, child)?;
+                let body = body.expand_node(child)?;
                 quote!(#else_token #body)
             }
         })
@@ -220,7 +221,7 @@ pub struct For {
     pub body: Vec<Node>,
 }
 impl For {
-    fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
+    fn expand_node(self, child: bool) -> Result {
         let Self {
             for_token,
             pat,
@@ -229,7 +230,7 @@ impl For {
             body,
             ..
         } = self;
-        let body = expand_nodes(body, htmx, child)?;
+        let body = expand_nodes(body, child)?;
         Ok(quote!(#for_token #pat #in_token #expr { #body }))
     }
 }
@@ -260,14 +261,14 @@ pub struct While {
 }
 
 impl While {
-    fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
+    fn expand_node(self, child: bool) -> Result {
         let Self {
             while_token,
             expr,
             body,
             ..
         } = self;
-        let body = expand_nodes(body, htmx, child)?;
+        let body = expand_nodes(body, child)?;
         Ok(quote!(#while_token #expr { #body }))
     }
 }
@@ -298,13 +299,13 @@ pub struct FunctionCall {
 }
 
 impl FunctionCall {
-    fn expand_node(self, htmx: &TokenStream, child: bool) -> Result {
+    fn expand_node(self, child: bool) -> Result {
         let Self { function, args, .. } = self;
         let args = args.into_iter();
         Ok(if child {
-            quote!($node = $node.child(&#function(#(Into::into(#args),)*));)
+            quote!(__node = __node.child(&#function(#(Into::into(#args),)*));)
         } else {
-            quote!(#htmx::ToHtml::write_to_html(&#function(#(Into::into(#args),)*), &mut $htmx);)
+            quote!(::htmx::ToHtml::write_to_html(&#function(#(Into::into(#args),)*), &mut __htmx);)
         })
     }
 }

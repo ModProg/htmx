@@ -15,10 +15,13 @@ proc-macro = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-attribute-derive = "0.8.0"
+# attribute-derive = "0.8.0"
+attribute-derive.path = "../../../Rust/attribute-derive"
+derive_more = { version = "1.0.0-beta.6", features = ["display"] }
+forr = "0.2.2"
 htmx-script = { version = "0.1.0", path = "../htmx-script" }
 manyhow = "0.8.1"
-proc-macro-crate = "1.3.1"
+proc-macro-utils = "0.8.0"
 proc-macro2 = "1.0.66"
 quote = "1.0.33"
 quote-use = "0.7.2"
@@ -28,7 +31,7 @@ rstml.branch = "custom-tag-syntax"
 rstml.git = "https://github.com/ModProg/rstml"
 # we'll depend on full for now, because rstml does anyway
 syn = {version="2.0.29", features = ["full"]}
-syn_derive = "0.1.7"
+syn_derive = "0.1.8"
 
 [package.metadata.release]
 shared-version = true

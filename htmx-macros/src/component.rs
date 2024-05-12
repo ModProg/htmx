@@ -9,7 +9,6 @@ use syn::{
 use crate::*;
 
 pub fn component(_input: TokenStream, item: TokenStream) -> Result {
-    let htmx = &htmx_crate();
     Ok(if let Ok(mut item) = parse2::<ItemStruct>(item.clone()) {
         // Generate
         // #[derive(typed_builder::TypedBuilder)]
@@ -24,12 +23,11 @@ pub fn component(_input: TokenStream, item: TokenStream) -> Result {
                 })?,
                 &field.ty,
                 &mut field.attrs,
-                htmx,
             )?;
         }
         quote! {
-            #use #htmx::Html;
-            #use #htmx::__private::typed_builder::{self, TypedBuilder};
+            #use ::htmx::Html;
+            #use ::htmx::__private::typed_builder::{self, TypedBuilder};
             #[derive(TypedBuilder)]
             #[builder(crate_module_path = typed_builder)]
             #[builder(build_method(into = Html))]
@@ -43,7 +41,7 @@ pub fn component(_input: TokenStream, item: TokenStream) -> Result {
                 ident,
                 generics,
                 inputs,
-                output: _todo_assert_that_this_is_html,
+                output,
                 ..
             },
         block,
@@ -66,6 +64,10 @@ pub fn component(_input: TokenStream, item: TokenStream) -> Result {
         //     }
         // }
         ensure!(generics.params.is_empty(), "generics are not supported");
+        let output = match output {
+            syn::ReturnType::Default => quote!(::htmx::Html),
+            syn::ReturnType::Type(_, ty) => ty.to_token_stream(),
+        };
 
         let (fields, fieldpats): (Vec<_>, Vec<_>) = inputs
             .into_iter()
@@ -89,7 +91,7 @@ pub fn component(_input: TokenStream, item: TokenStream) -> Result {
                     help = "use `ident @ {}`", pat.into_token_stream();),
                 };
 
-                type_attrs(ident, &ty, &mut attrs, htmx)?;
+                type_attrs(ident, &ty, &mut attrs)?;
 
                 Ok((quote!(#(#attrs)* pub #ident: #ty,), quote!(#ident: #pat,)))
             })
@@ -99,19 +101,18 @@ pub fn component(_input: TokenStream, item: TokenStream) -> Result {
 
         // #attrs #vis struct
         quote! {
-            #use #htmx::Html;
-            #use #htmx::__private::typed_builder::{self, TypedBuilder};
+            #use ::htmx::__private::typed_builder::{self, TypedBuilder};
             #[derive(TypedBuilder)]
             #[builder(crate_module_path=typed_builder)]
-            #[builder(build_method(into=Html))]
+            #[builder(build_method(into=#output))]
             #(#attrs)*
             #vis struct #ident {
                 #(#fields)*
             }
 
-            impl From<#ident> for Html {
+            impl From<#ident> for #output {
                 #[allow(non_shorthand_field_patterns)]
-                fn from(#ident{ #(#fieldpats)* }: #ident) -> Html #block
+                fn from(#ident{ #(#fieldpats)* }: #ident) -> #output #block
             }
         }
     } else {
@@ -163,19 +164,16 @@ pub fn component(_input: TokenStream, item: TokenStream) -> Result {
 //
 
 #[derive(FromAttr)]
-#[attribute(ident = component)]
-struct FieldAttribute {
-    default: FlagOrValue<Expr>,
-    children: bool,
-}
+#[attribute(ident = default)]
+struct DefaultAttr(FlagOrValue<Expr>);
 
-fn type_attrs(
-    name: &Ident,
-    ty: &Type,
-    attrs: &mut Vec<Attribute>,
-    htmx: &TokenStream,
-) -> Result<()> {
-    let FieldAttribute { default, children } = FieldAttribute::remove_attributes(attrs)?;
+#[derive(FromAttr)]
+#[attribute(ident = default)]
+struct ChildrenAttr(bool);
+
+fn type_attrs(name: &Ident, ty: &Type, attrs: &mut Vec<Attribute>) -> Result<()> {
+    let DefaultAttr(default) = DefaultAttr::remove_attributes(attrs)?;
+    let ChildrenAttr(children) = ChildrenAttr::remove_attributes(attrs)?;
     if let Type::Path(path) = ty {
         // TODO strip Option
         if default.is_flag() || path.path.is_ident("bool") || path.path.is_ident("Option") {
@@ -187,11 +185,11 @@ fn type_attrs(
         if children
             || path.path.is_ident("Children")
             || path.path == parse_quote!(htmx::Children)
-            || path.path == parse_quote!(#htmx::Children)
+            || path.path == parse_quote!(::htmx::Children)
         {
             attrs.push(parse_quote! {#[builder(via_mutators, mutators(
-                fn child(&mut self, $child: impl #htmx::ToHtml) {
-                    self.#name.push($child);
+                pub fn child(&mut self, __child: impl ::htmx::ToHtml) {
+                    self.#name.push(__child);
                 }
             ))]});
             attrs.push(parse_quote!(#[allow(missing_docs)]));

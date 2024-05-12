@@ -1,4 +1,4 @@
-//! Native html elements
+//! Native HTML elements
 #![allow(non_camel_case_types)]
 
 use std::borrow::Cow;
@@ -9,8 +9,7 @@ use forr::{forr, iff};
 use html_escape::encode_double_quoted_attribute;
 
 use crate::attributes::{
-    AnyAttributeValue, DateTime, FlagOrAttributeValue, IntoAttribute, Number, TimeDateTime,
-    ValueOrFlag,
+    Any, DateTime, FlagOrValue, IntoAttribute, Number, TimeDateTime, ValueOrFlag,
 };
 use crate::{Html, ToHtml};
 
@@ -28,17 +27,17 @@ impl ToHtml for char {
     }
 }
 
-struct ScriptContent(Cow<'static, str>);
+struct ScriptContent<'a>(Cow<'a, str>);
 
-impl ToHtml for ScriptContent {
+impl ToHtml for ScriptContent<'_> {
     fn write_to_html(&self, out: &mut Html) {
         write!(out.0, " {} ", html_escape::encode_script(&self.0)).unwrap();
     }
 }
 
-struct StyleContent(Cow<'static, str>);
+struct StyleContent<'a>(Cow<'a, str>);
 
-impl ToHtml for StyleContent {
+impl ToHtml for StyleContent<'_> {
     fn write_to_html(&self, out: &mut Html) {
         write!(out.0, " {} ", html_escape::encode_style(&self.0)).unwrap();
     }
@@ -58,10 +57,10 @@ macro_rules! attribute {
         attribute!($elem|$name=$actual<String>);
     };
     ($elem:ident|$name:ident < $type:ty >) => {
-        attribute!($elem, $name, stringify!($name), impl IntoAttribute<Target = $type>);
+        attribute!($elem, $name, stringify!($name), impl IntoAttribute<$type>);
     };
     ($elem:ident|$name:ident=$actual:tt< $type:ty >) => {
-        attribute!($elem, $name, $actual, impl IntoAttribute<Target = $type>);
+        attribute!($elem, $name, $actual, impl IntoAttribute<$type>);
     };
     (global, $name:ident, $actual:expr, $type:ty) => {
         attr_fn!(concat!("Sets the [`", $actual, "`](https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/", $actual, ") attribute."), $name, $actual, $type);
@@ -95,8 +94,8 @@ macro_rules! attr_fn{
 
 // Attributes that take values
 forr! { ($type:ty, $attrs:tt) in [
-    (a, [download<FlagOrAttributeValue>, href, hreflang, ping, referrerpolicy/*no-referrer|no-referrer-when-downgrade|origin|origin-when-cross-origin|same-origin|strict-origin|strict-origin-when-cross-origin|unsafe-url*/, rel, target/*_self|_blank|_parent|_top|...*/, type_="type"]),
-    (area, [alt, coords, download<FlagOrAttributeValue>, href, ping, referrerpolicy/*no-referrer|no-referrer-when-downgrade|origin|origin-when-cross-origin|same-origin|strict-origin|strict-origin-when-cross-origin|unsafe-url*/, rel, shape, target]),
+    (a, [download<FlagOrValue<String>>, href, hreflang, ping, referrerpolicy/*no-referrer|no-referrer-when-downgrade|origin|origin-when-cross-origin|same-origin|strict-origin|strict-origin-when-cross-origin|unsafe-url*/, rel, target/*_self|_blank|_parent|_top|...*/, type_="type"]),
+    (area, [alt, coords, download<FlagOrValue<String>>, href, ping, referrerpolicy/*no-referrer|no-referrer-when-downgrade|origin|origin-when-cross-origin|same-origin|strict-origin|strict-origin-when-cross-origin|unsafe-url*/, rel, shape, target]),
     (audio, [autoplay<bool>, controls<bool>, crossorigin/*anonymous, use-credentials*/, loop_="loop", muted<bool>, preload/*none,metadata,auto*/, src]),
     (base, [href, target/*_self|_blank|_parent|_top|...*/]),
     (blockquote, [cite]),
@@ -143,7 +142,7 @@ forr! { ($type:ty, $attrs:tt) in [
     (track, [default<bool>, kind/*subtitles,captions,descriptions,chapters,metadata*/, label, src, srclang]),
     (video, [autoplay<bool>, controls<bool>, crossorigin/*anonymous, use-credentials*/, height<Number>, loop_="loop"<bool>, muted<bool>, playsinline<bool>, poster, preload/*none,metadata,auto*/, src, width<Number>])
 ] $*
-    impl $type {
+    impl $type<'_> {
         forr! { $attr:ty in $attrs $*
             attribute!($type|$attr);
         }
@@ -155,12 +154,12 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
     #[doc = concat!("The [`<", stringify!($type), ">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/", stringify!($type), ") element.")]
     #[must_use]
     #[derive(Default)]
-    pub struct $type {
-        attributes: HashMap<Cow<'static, str>, ValueOrFlag>,
+    pub struct $type<'a> {
+        attributes: HashMap<Cow<'a, str>, ValueOrFlag>,
         inner: Html,
     }
 
-    impl ToHtml for $type {
+    impl ToHtml for $type<'_> {
         fn write_to_html(&self, out: &mut Html) {
             write!(out.0, concat!("<", stringify!($type))).unwrap();
             #[cfg(feature="sorted_attributes")]
@@ -191,7 +190,7 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         }
     }
 
-    impl $type {
+    impl<'a> $type<'a> {
         /// `builder()` is only present to be compatible with the builder
         /// instructions used for custom components, it just returns [`Self::default()`].
         #[doc(hidden)]
@@ -200,7 +199,7 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         }
 
         /// `build()` is only present to be compatible with the builder
-        /// instructions used for custom components, it is a noop.
+        /// instructions used for custom components, it is a no-op.
         #[doc(hidden)]
         pub fn build(self) -> Self {
             self
@@ -215,16 +214,16 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         }
 
         iff! {equals($type)(script) $:
-            /// Adds a child component or element.
-            pub fn child(mut self, child: impl Into<Cow<'static, str>>) -> Self {
+            /// Adds JS code to the script.
+            pub fn child(mut self, child: impl Into<Cow<'a, str>>) -> Self {
                 ScriptContent(child.into()).write_to_html(&mut self.inner);
                 self
             }
         }
 
         iff! {equals($type)(style) $:
-            /// Adds a child component or element.
-            pub fn child(mut self, child: impl Into<Cow<'static, str>>) -> Self {
+            /// Adds CSS to the style.
+            pub fn child(mut self, child: impl Into<Cow<'a, str>>) -> Self {
                 ScriptContent(child.into()).write_to_html(&mut self.inner);
                 self
             }
@@ -236,13 +235,13 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         ///
         /// # Panics
         /// Panics on [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0).
-        pub fn custom_attr(mut self, key: impl Into<Cow<'static, str>>, value: impl AnyAttributeValue) -> Self
+        pub fn custom_attr(mut self, key: impl Into<Cow<'a, str>>, value: impl IntoAttribute<Any>) -> Self
         {
             let key = key.into();
-        assert!(!key.chars().any(|c| c.is_whitespace()
-            || c.is_control()
-            || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-            self.attributes.insert(key.to_string().into(), value.into_attribute());
+            assert!(!key.chars().any(|c| c.is_whitespace()
+                || c.is_control()
+                || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+                self.attributes.insert(key.to_string().into(), value.into_attribute());
             self
         }
 
@@ -251,7 +250,7 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         /// Useful for setting, e.g., `data-{key}`.
         ///
         /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
-        pub fn custom_attr_unchecked(mut self, key: impl Into<Cow<'static, str>>, value: impl AnyAttributeValue) -> Self
+        pub fn custom_attr_unchecked(mut self, key: impl Into<Cow<'a, str>>, value: impl IntoAttribute<Any>) -> Self
         {
             let key = key.into();
         assert!(!key.chars().any(|c| c.is_whitespace()
@@ -261,11 +260,18 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
             self
         }
 
+        /// Adds a class to the element.
+        pub fn class<'b>(mut self, class: impl Into<Cow<'b, str>>) -> Self {
+            // TODO consider checking type
+            self.attributes.entry("class".into()).or_default().append(class);
+           self
+        }
 
         // Global attributes
+        // TODO class should be able to specify multiple times
         forr! { $attr:ty in [
             // TODO ARIA: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes
-            accesskey<char>, autocapitalize/*off/none, on/sentence, words, characters*/, autofocus<bool>, class, contenteditable/*true, false, plaintext-only*/, dir/*ltr,rtl,auto*/, draggable/*true,false*/, enterkeyhint,hidden<FlagOrAttributeValue>/*hidden|until-found*/, id, inert<bool>, inputmode/*none,text,decimal,numeric,tel,search,email,url*/, is, itemid, itemprop, itemref, itemscope, itemtype, lang, nonce, part, popover, rolle, slot, spellcheck<FlagOrAttributeValue>/*true,false*/, style, tabindex, title, translate/*yes,no*/, virtualkeyboardpolicy/*auto,manual*/] $*
+            accesskey<char>, autocapitalize/*off/none, on/sentence, words, characters*/, autofocus<bool>, contenteditable/*true, false, plaintext-only*/, dir/*ltr,rtl,auto*/, draggable/*true,false*/, enterkeyhint,hidden<FlagOrValue<String>>/*hidden|until-found*/, id, inert<bool>, inputmode/*none,text,decimal,numeric,tel,search,email,url*/, is, itemid, itemprop, itemref, itemscope, itemtype, lang, nonce, part, popover, rolle, slot, spellcheck<FlagOrValue<String>>/*true,false*/, style, tabindex, title, translate/*yes,no*/, virtualkeyboardpolicy/*auto,manual*/] $*
             attribute!(global|$attr);
         }
         // Event handlers

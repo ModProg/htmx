@@ -6,12 +6,12 @@ use std::collections::HashMap;
 
 use actix_web::web::Form;
 use actix_web::{get, post, App, HttpServer, Responder};
-use htmx::{htmx, HtmxSrc};
+use htmx::{html, HtmxSrc};
 
 #[get("/")]
 async fn index() -> impl Responder {
     let rust_str = ["hello", "world", "!"];
-    htmx! {
+    html! {
         <head>
             <script src="/htmx"/>
             <script>
@@ -33,7 +33,7 @@ async fn index() -> impl Responder {
 
 #[post("/greet")]
 async fn greet(Form(form): Form<HashMap<String, String>>) -> impl Responder {
-    htmx! {
+    html! {
         "Hello "
         {form.get("name").map(|name| format!("{name}! "))}
         <a href="/"> ":D" </a>

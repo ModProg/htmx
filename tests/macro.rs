@@ -1,5 +1,12 @@
-use htmx::{htmx, Html};
-use htmx_macros::component;
+use htmx::{component, html, rtml, Html};
+
+macro_rules! assert_html {
+    ($html:tt$(, $rtml:tt)?) => {
+        let html = html!$html;
+        $(assert_eq!(rtml!$rtml, html);)?
+        insta::assert_snapshot!(html.to_string());
+    };
+}
 
 struct Custom {
     href: String,
@@ -18,7 +25,7 @@ impl Custom {
     }
 
     fn build(self) -> Html {
-        htmx! {
+        html! {
             <a href=self.href/>
         }
     }
@@ -26,14 +33,19 @@ impl Custom {
 
 #[test]
 fn test() {
-    let html = htmx!(
+    assert_html!((
         <div>
             <a href="hello" download/>
             <a href="hello" download="file.name"/>
             <Custom href="test"/>
         </div>
-    );
-    insta::assert_snapshot!(html.to_string());
+    ), (
+        div[
+            a(href: "hello", download: true),
+            a(href: "hello", download: "file.name"),
+            Custom(href: "test")
+        ]
+    ));
 }
 
 #[test]
@@ -46,34 +58,35 @@ fn struct_component() {
 
     impl From<Component> for Html {
         fn from(Component { a, b }: Component) -> Self {
-            htmx! {
+            html! {
                 <button disabled=a>{b}</button>
             }
         }
     }
-
-    insta::assert_snapshot!(
-        htmx! {
+    assert_html!({
             <Component a b="Disabled Button"/>
             <Component a=true b="Disabled Button"/>
             <Component a=false b="Enabled Button"/>
             <Component b="Enabled Button"/>
-        }
-        .to_string()
-    );
+    }, [
+       Component(a: true, b: "Disabled Button"),
+       Component(a: true, b: "Disabled Button"),
+       Component(a: false, b: "Enabled Button"),
+       Component(b: "Enabled Button"),
+    ]);
 }
 
 #[test]
 fn fn_component() {
     #[component]
     fn Component(a: bool, b: String) -> Html {
-        htmx! {
+        html! {
             <button disabled=a>{b}</button>
         }
     }
 
     insta::assert_snapshot!(
-        htmx! {
+        html! {
             <Component a b="Disabled Button"/>
             <Component a=true b="Disabled Button"/>
             <Component a=false b="Enabled Button"/>
@@ -85,36 +98,65 @@ fn fn_component() {
 
 #[test]
 fn reserved_attributes() {
-    insta::assert_snapshot!(
-        htmx! {
-            <script type_="module" />
-            <script async_=true />
-        }
-        .to_string()
-    );
+    assert_html!({
+        <script type_="module" />
+        <script async_=true />
+        // TODO <script type="module" />
+        // <script async=true />
+    }, {
+        script(type_: "module"),
+        script(async_: true),
+        // TODO script(type: "module"),
+        // script(async: true),
+    });
 }
 
 #[test]
 fn custom_element() {
-    insta::assert_snapshot!(
-        htmx! {
-            <custom-element attr="module">
-                <p> "This is a child" </p>
-            </_>
-            <{"div"} custom_div="hello"> </_>
-        }
-        .to_string()
-    );
+    assert_html!({
+        <custom-element attr="module">
+            <p> "This is a child" </p>
+        </_>
+        <{"div"} custom_div="hello"> </_>
+    });
 }
 
 #[test]
 fn raw_html() {
     use htmx::RawHtml;
-    insta::assert_snapshot!(
-        htmx! {
-            "this < will be > escaped "
-            <RawHtml("This < will > not")/>
+    assert_html!({
+        "this < will be > escaped "
+        <RawHtml("This < will > not")/>
+    });
+}
+
+#[test]
+fn controll_flow() {
+    let mut b = [1, 2, 3].into_iter();
+    let mut b2 = b.clone();
+    assert_html!({
+        if true {
+            <a>"Hello"</a>
+        } else if false {
+            <p>"else"</p>
         }
-        .to_string()
-    );
+        for a in [1, 2, 3] {
+            {format!("{a}")}
+        }
+        while let Some(b) = b.next() {
+            {format!("{b}")}
+        }
+    }, {
+        if true [
+            a["Hello"]
+        ] else if false {
+            html!(<p>"else"</p>)
+        },
+        for a in [1, 2, 3] [
+            {format!("{a}")}
+        ],
+        while let Some(b) = b2.next() [
+            {format!("{b}")}
+        ]
+    });
 }

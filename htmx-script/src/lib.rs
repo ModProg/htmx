@@ -42,17 +42,17 @@ impl ToTokens for JsTokens {
                 JsToken::Rust(ident) => {
                     let mut last_verbatum = mem::take(&mut last_verbatum);
                     last_verbatum.push(' ');
-                    js_tokens.push(quote!($out.push_str(#last_verbatum)));
-                    js_tokens.push(quote!($out.push_str(#ident.to_js().as_str())))
+                    js_tokens.push(quote!(__out.push_str(#last_verbatum)));
+                    js_tokens.push(quote!(__out.push_str(#ident.to_js().as_str())))
                 }
             }
         }
-        js_tokens.push(quote!($out.push_str(#last_verbatum)));
+        js_tokens.push(quote!(__out.push_str(#last_verbatum)));
         quote! {{
             use ::htmx::ToJs as _;
-            let mut $out = String::new();
+            let mut __out = String::new();
             #(#js_tokens;)*
-            $out
+            __out
         }}
         .to_tokens(tokens)
     }
@@ -371,7 +371,7 @@ pub enum Expr {
     // Let's be lazy and let js figure out precedence
     Op(Box<Expr>, Op, Box<Expr>),
     Unary(ExprUnary),
-    // TODO support template strings, idea: $""
+    // TODO support template strings, idea: __""
     Lit(Lit),
     Format(T![$], LitStr),
     Block(Block),
@@ -790,8 +790,8 @@ fn basic() -> syn::Result<()> {
     let rust = quote! {
         fn on_click(event) {
             // TODO support rust in template strings
-            let name = $name;
-            console.log($name);
+            let name = __name;
+            console.log(__name);
             alert($"Hi ${name} you triggered an event ${event.type}");
         }
     };

@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::Display;
 
-use htmx::{htmx, Html, HtmxSrc};
+use htmx::{html, Html, HtmxSrc};
 use tauri_runtime::http::ResponseBuilder;
 use tauri_runtime::webview::{WebviewAttributes, WindowBuilder};
 use tauri_runtime::window::PendingWindow;
@@ -17,7 +17,7 @@ use tauri_runtime_wry::Wry;
 use url::Url;
 
 fn index() -> Html {
-    htmx! {
+    html! {
         <head><HtmxSrc/></head>
         <h1>"Tauri Demo"</h1>
         <form hx::get="/greet" hx::swap="outerHTML">
@@ -28,7 +28,7 @@ fn index() -> Html {
 }
 
 fn greet(name: impl Display) -> Html {
-    htmx! {
+    html! {
         "Hello "
         {format!("{name}! ")}
         <a href="/"> ":D" </a>

@@ -1,0 +1,5 @@
+---
+source: tests/macro.rs
+expression: html.to_string()
+---
+<!DOCTYPE html><a>Hello</a>123123

@@ -1,9 +1,16 @@
 //! Details on conversion for Attribute values.
 use std::borrow::Cow;
+use std::marker::PhantomData;
 use std::num::{NonZeroU64, NonZeroU8};
 
 use derive_more::Display;
 use forr::forr;
+
+/// An attribute that accepts an attribute value or a flag.
+pub struct FlagOrValue<T>(PhantomData<T>);
+
+/// An attribute that accepts any attribute value.
+pub struct Any;
 
 /// An attribute that accepts a numeric value.
 pub struct Number;
@@ -12,43 +19,88 @@ pub struct Number;
 pub struct DateTime;
 
 /// An attribute that can be set as a flag or set to a value.
+#[derive(Default, Debug, PartialEq, Eq, Hash)]
 pub enum ValueOrFlag {
     /// Attribute is set to a value.
     Value(String),
     /// Attribute is set without a value.
     Flag,
     /// Attribute is not set.
+    #[default]
     Unset,
 }
 
-/// Converts to an Attribute that accepts type [`Self::Target`], e.g.,
+impl ValueOrFlag {
+    pub(crate) fn append<'a>(&mut self, value: impl Into<Cow<'a, str>>) {
+        match self {
+            ValueOrFlag::Value(c) => c.push_str(&value.into()),
+            _ => *self = Self::Value(value.into().into()),
+        }
+    }
+}
+
+/// Converts to an Attribute that accepts type `Output`, e.g.,
 /// [`Number`].
-pub trait IntoAttribute {
-    /// Target value of the attribute.
-    type Target;
+pub trait IntoAttribute<Output> {
     /// Converts into an attribute value.
     fn into_attribute(self) -> ValueOrFlag;
 }
 
-impl<A: IntoAttribute + Clone> IntoAttribute for &A {
-    type Target = A::Target;
-
+impl<A: IntoAttribute<T> + Clone, T> IntoAttribute<T> for &A {
     fn into_attribute(self) -> ValueOrFlag {
         self.clone().into_attribute()
     }
 }
 
-impl<A: IntoAttribute> IntoAttribute for Option<A> {
-    type Target = A::Target;
-
+impl<A: IntoAttribute<T>, T> IntoAttribute<T> for Option<A> {
     fn into_attribute(self) -> ValueOrFlag {
         self.map_or(ValueOrFlag::Unset, IntoAttribute::into_attribute)
     }
 }
 
-impl IntoAttribute for bool {
-    type Target = bool;
+macro_rules! into_attr {
+    ($target:ident, $types:tt, |$self:ident| $($tmpl:tt)*) => {
+        forr! { #type:ty in $types #*
+            impl IntoAttribute<$target> for #type {
+                fn into_attribute($self) -> ValueOrFlag {
+                    $($tmpl)*
+                }
+            }
+            impl IntoAttribute<Any> for #type {
+                fn into_attribute($self) -> ValueOrFlag {
+                    $($tmpl)*
+                }
+            }
+            impl IntoAttribute<FlagOrValue<$target>> for #type {
+                fn into_attribute($self) -> ValueOrFlag {
+                    $($tmpl)*
+                }
+            }
+        }
+    }
+}
 
+into_attr! {
+    Number,
+    [u8, i8, u16, i16, u32, i32, f32, u64, i64, f64, u128, i128, isize, usize],
+    |self| ValueOrFlag::Value(self.to_string())
+}
+
+into_attr! {
+    String,
+    [&str, String, Cow<'_, str>],
+    |self| ValueOrFlag::Value(self.into())
+}
+
+into_attr! {  char, [char], |self| ValueOrFlag::Value(self.to_string()) }
+
+// /// Trait accepted by an attribute that allows both values and flags.
+// pub trait FlagOrAttributeValue {
+//     /// Converts into value.
+//     fn into_attribute(self) -> ValueOrFlag;
+// }
+
+impl IntoAttribute<bool> for bool {
     fn into_attribute(self) -> ValueOrFlag {
         if self {
             ValueOrFlag::Flag
@@ -58,59 +110,15 @@ impl IntoAttribute for bool {
     }
 }
 
-impl IntoAttribute for char {
-    type Target = char;
-
+impl<T> IntoAttribute<FlagOrValue<T>> for bool {
     fn into_attribute(self) -> ValueOrFlag {
-        ValueOrFlag::Value(self.to_string())
+        IntoAttribute::<bool>::into_attribute(self)
     }
 }
 
-forr! { $type:ty in [u8, i8, u16, i16, u32, i32, f32, u64, i64, f64, u128, i128, isize, usize] $*
-    impl IntoAttribute for $type {
-        type Target = Number;
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(self.to_string())
-        }
-    }
-}
-
-forr! { $type:ty in [&str, String, Cow<'_, str>] $*
-    impl IntoAttribute for $type {
-        type Target = String;
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(self.into())
-        }
-    }
-}
-
-/// Trait accepted by an attribute that allows both values and flags.
-pub trait FlagOrAttributeValue {
-    /// Converts into value.
-    fn into_attribute(self) -> ValueOrFlag;
-}
-
-impl FlagOrAttributeValue for bool {
+impl IntoAttribute<Any> for bool {
     fn into_attribute(self) -> ValueOrFlag {
-        IntoAttribute::into_attribute(self)
-    }
-}
-
-impl<A: IntoAttribute<Target = String>> FlagOrAttributeValue for A {
-    fn into_attribute(self) -> ValueOrFlag {
-        self.into_attribute()
-    }
-}
-
-/// Trait accepted by an attribute that accepts any value
-pub trait AnyAttributeValue {
-    /// Converts into value.
-    fn into_attribute(self) -> ValueOrFlag;
-}
-
-impl<T: IntoAttribute> AnyAttributeValue for T {
-    fn into_attribute(self) -> ValueOrFlag {
-        self.into_attribute()
+        IntoAttribute::<bool>::into_attribute(self)
     }
 }
 
@@ -167,9 +175,7 @@ mod chrono {
 
     use super::{Day, IntoAttribute, TimeDateTime, ValueOrFlag, Week, Year};
 
-    impl<Tz: TimeZone> IntoAttribute for DateTime<Tz> {
-        type Target = super::DateTime;
-
+    impl<Tz: TimeZone> IntoAttribute<super::DateTime> for DateTime<Tz> {
         fn into_attribute(self) -> ValueOrFlag {
             ValueOrFlag::Value(self.to_rfc3339())
         }

@@ -1,19 +1,19 @@
-use htmx_macros::{component, htmx};
+use htmx_macros::{component, html};
 
 use crate::{Children, Html};
 
 /// Embed [HTMX script](https://htmx.org/).
 ///
-/// Can either be embeded into [`Html`] as component or be returned from
+/// Can either be embedded into [`Html`] as component or be returned from
 /// endpoints.
 ///
-/// [v1.9.5](https://github.com/bigskysoftware/htmx/releases/tag/v1.9.5)
+/// [`v1.9.5`](https://github.com/bigskysoftware/htmx/releases/tag/v1.9.5)
 #[must_use]
 pub struct HtmxSrc;
 
 impl HtmxSrc {
     /// HTMX source.
-    pub const HTMX_SRC: &str = include_str!("htmx.min.js");
+    pub const HTMX_SRC: &'static str = include_str!("htmx.min.js");
 
     // Only exist because I'm lazy
     #[doc(hidden)]
@@ -23,7 +23,7 @@ impl HtmxSrc {
 
     #[doc(hidden)]
     pub fn build(self) -> Html {
-        htmx! {crate
+        html! {
             <script>{Self::HTMX_SRC}</script>
         }
     }
@@ -40,28 +40,28 @@ impl<T, F: Into<T>, I: IntoIterator<Item = F>> From<I> for AttrVec<T> {
     }
 }
 
-/// Html boilderplate
+/// HTML boilerplate
 #[component]
 pub fn HtmlPage(
     /// Sets `<meta name="viewport">` to specify page supports mobile
     /// form factor.
     mobile: bool,
     /// `<title>{}</title>`
-    #[component(default)]
+    #[default]
     title: String,
     /// `<link href="{}" rel="stylesheet">`
-    #[component(default)]
+    #[default]
     AttrVec(style_sheets): AttrVec<String>,
     /// `<script src="{}">`
-    #[component(default)]
+    #[default]
     AttrVec(scripts): AttrVec<String>,
-    #[component(default)]
+    #[default]
     /// `<html lang="{lang}">`
     #[builder(setter(strip_option))]
     lang: Option<String>,
     children: Children,
 ) -> Html {
-    htmx!(
+    html!(
         <html lang=lang>
             <head>
                 <meta charset="utf-8"/>

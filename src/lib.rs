@@ -3,17 +3,17 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 //! Library for doing server side rendering of HTML using a macro.
 //!
-//! # `htmx!` macro
+//! # `html!` macro
 //!
-//! The [`htmx!`] macro allows to write HTML inside your rust code allowing
+//! The [`html!`] macro allows to write HTML inside your rust code allowing
 //! to include rust values and instantiate [custom
 //! components](#custom-components).
 //!
 //! ```
-//! # use htmx::htmx;
+//! # use htmx::html;
 //! let link = "example.com";
 //! # insta::assert_display_snapshot!("doc-1",
-//! htmx! {
+//! html! {
 //!     <div>
 //!         "Some literal text "
 //!         // In attributes, expressions can be used directly.
@@ -53,11 +53,11 @@
 //! Similarly to [react](https://react.dev/) or [leptos](https://docs.rs/leptos/).
 //!
 //! ```
-//! # use htmx::{component, htmx};
+//! # use htmx::{component, html};
 //!
 //! #[component]
 //! fn Custom(name: String, link: bool) {
-//!     htmx! {
+//!     html! {
 //!         if link {
 //!             <a href=format!("example.com/{name}")>{name}</a>
 //!         } else {
@@ -66,7 +66,7 @@
 //!     }
 //! }
 //! # insta::assert_display_snapshot!("doc-2",
-//! htmx! {
+//! html! {
 //!     <Custom name="link" link/>
 //!     " "
 //!     <Custom name="normal"/>
@@ -78,7 +78,7 @@
 //!     <a href="example.com/link">link</a> normal
 //! </div>
 //!
-//! For more documentation see [`htmx!`], [`component`] and the [examples](https://github.com/ModProg/htmx/tree/main/example).
+//! For more documentation see [`html!`], [`component`] and the [examples](https://github.com/ModProg/htmx/tree/main/example).
 
 // This makes `::htmx` work in the proc-macro expansions.
 extern crate self as htmx;
@@ -87,14 +87,28 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use attributes::{AnyAttributeValue, ValueOrFlag};
+use attributes::Any;
+use attributes::IntoAttribute;
+use attributes::ValueOrFlag;
 use derive_more::Display;
 use html_escape::encode_double_quoted_attribute;
+use native::style;
 use serde::Serialize;
 
 pub mod attributes;
 pub mod native;
 mod utils;
+pub use utils::*;
+
+#[cfg(feature = "actix-web")]
+mod actix;
+#[cfg(feature = "actix-web")]
+pub use actix::*;
+
+#[cfg(feature = "axum")]
+mod axum;
+#[cfg(feature = "axum")]
+pub use axum::*;
 
 #[doc(hidden)]
 pub mod __private {
@@ -106,7 +120,7 @@ pub mod __private {
 /// # Struct
 /// A struct needs to have an <code>[Into]<[Html]></code> implementation.
 /// ```
-/// # use htmx::{component, htmx, Html};
+/// # use htmx::{component, html, Html};
 /// #[component]
 /// struct Component {
 ///     a: bool,
@@ -115,13 +129,13 @@ pub mod __private {
 ///
 /// impl From<Component> for Html {
 ///     fn from(Component { a, b }: Component) -> Self {
-///         htmx! {
+///         html! {
 ///             <button disabled=a>{b}</button>
 ///         }
 ///     }
 /// }
 ///
-/// htmx! {
+/// html! {
 ///     <Component a b="Disabled Button"/>
 ///     <Component a=true b="Disabled Button"/>
 ///     <Component a=false b="Enabled Button"/>
@@ -140,15 +154,15 @@ pub mod __private {
 /// By convention function components are `PascalCase` as well, ensuring they
 /// cannot conflict with native always lowercase elements.
 /// ```
-/// # use htmx::{component, htmx, Html};
+/// # use htmx::{component, html, Html};
 /// #[component]
 /// fn Component(a: bool, b: String) -> Html {
-///     htmx! {
+///     html! {
 ///         <button disabled=a>{b}</button>
 ///     }
 /// }
 ///
-/// htmx! {
+/// html! {
 ///     <Component a b="Disabled Button"/>
 ///     <Component a=true b="Disabled Button"/>
 ///     <Component a=false b="Enabled Button"/>
@@ -158,7 +172,7 @@ pub mod __private {
 /// The [`#[component]`](component) macro on functions, generates the struct and
 /// [`Into`] implementation [above](#struct), making the two equivalent.
 pub use htmx_macros::component;
-/// The `htmx!` macro allows constructing [`Html`] using an HTML like syntax.
+/// The `html!` macro allows constructing [`Html`] using an HTML like syntax.
 ///
 /// The native HTML elements in [`native`] are always available and do
 /// not require manual imports. This also means, that custom components cannot
@@ -171,7 +185,7 @@ pub use htmx_macros::component;
 /// will be created as [`CustomElement`]. This is also true when using blocks
 /// for tag names, e.g., `<{"tagname"}>`.
 ///
-/// To create an element, `htmx!` calls `TagName::builder()`, then it calls
+/// To create an element, `html!` calls `TagName::builder()`, then it calls
 /// `TagName::attribute_name(attribute_value)` for each
 /// `attribute_name=attribute_value`. When the attribute name is not a valid
 /// rust identifier, e.g., `attribute-name=...` or `{"string-name"}=...`, the
@@ -186,11 +200,11 @@ pub use htmx_macros::component;
 /// macro.
 ///
 /// ```
-/// # use htmx::htmx;
+/// # use htmx::html;
 /// let link = "example.com";
 /// let mut chars = link.chars();
 /// # insta::assert_display_snapshot!("doc-3",
-/// htmx! {
+/// html! {
 ///     <div>
 ///         "Literal text is put directly into HTML though <html> escaping is performed."
 ///         " All whitespace that should be preserved needs to be inside a string literal."
@@ -215,23 +229,15 @@ pub use htmx_macros::component;
 /// }
 /// # );
 /// ```
-pub use htmx_macros::htmx;
-pub use utils::*;
+pub use htmx_macros::html;
 
-#[cfg(feature = "actix-web")]
-mod actix;
-#[cfg(feature = "actix-web")]
-pub use actix::*;
-
-#[cfg(feature = "axum")]
-mod axum;
-#[cfg(feature = "axum")]
-pub use axum::*;
+// TODO docs
+pub use htmx_macros::rtml;
 
 const DOCTYPE: &str = "<!DOCTYPE html>";
 
 /// Trait used with the custom Rust like JS in `<script>` tags using the
-/// [`htmx!`] macro.
+/// [`html!`] macro.
 ///
 /// It is not used per fully qualified syntax, so you are able to provide a
 /// custom `to_js()` method on types that implement [`Serialize`].
@@ -244,7 +250,7 @@ const DOCTYPE: &str = "<!DOCTYPE html>";
 ///
 /// impl CustomToJs {
 ///     // returns custom string instead of `Serialize` implementation
-///     // `htmx!` will prefere this function.
+///     // `html!` will prefere this function.
 ///     fn to_js(&self) -> String {
 ///         format!("\"custom: {}\"", self.0)
 ///     }
@@ -262,15 +268,15 @@ impl<T: Serialize> ToJs for T {
     }
 }
 
-/// Html
+/// HTML
 ///
-/// Can be returned from http endpoints or converted to a string.
+/// Can be returned from HTTP endpoints or converted to a string.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Display)]
 #[must_use]
 pub struct Html(String);
 
 impl Html {
-    /// Creates a piece of Html
+    /// Creates a piece of HTML.
     pub fn new() -> Self {
         Self(DOCTYPE.into())
     }
@@ -368,18 +374,18 @@ impl<T: ToHtml> ToHtml for Vec<T> {
 /// Canonical type to accept children in component.
 ///
 /// ```
-/// # use htmx::{htmx, component, Children};
+/// # use htmx::{html, Html, component, Children};
 ///
 /// #[component]
 /// fn Component(attr: String, children: Children) -> Html {
-///     htmx! {
+///     html! {
 ///         <a href = attr>
 ///             {children}
 ///         </a>
 ///     }
 /// }
 ///
-/// htmx! {
+/// html! {
 ///     <Component attr = "https://example.com">
 ///         "Some content"
 ///         "and some more"
@@ -428,11 +434,11 @@ fn children_push() {
     children.push(["hello"].as_slice());
 }
 
-/// Allows creating an element with arbitary tag name and attributes.
+/// Allows creating an element with arbitrary tag name and attributes.
 ///
 /// This can be used for unofficial elements and web-components.
 ///
-/// The [`htmx!`] macro uses them for all tags that contain `-` making it
+/// The [`html!`] macro uses them for all tags that contain `-` making it
 /// possible to use web-components.
 #[must_use]
 pub struct CustomElement {
@@ -472,7 +478,7 @@ impl CustomElement {
         }
     }
 
-    /// Sets the attribute `key`, this does not do any typechecking and allows
+    /// Sets the attribute `key`, this does not do any type checking and allows
     /// [`AnyAttributeValue`].
     ///
     /// # Panics
@@ -480,7 +486,7 @@ impl CustomElement {
     pub fn custom_attr(
         mut self,
         key: impl Into<Cow<'static, str>>,
-        value: impl AnyAttributeValue,
+        value: impl IntoAttribute<Any>,
     ) -> Self {
         let key = key.into();
         assert!(!key.chars().any(|c| c.is_whitespace()
@@ -490,14 +496,14 @@ impl CustomElement {
         self
     }
 
-    /// Sets the attribute `key`, this does not do any typechecking and allows
+    /// Sets the attribute `key`, this does not do any type checking and allows
     /// [`AnyAttributeValue`], without checking for invalid characters.
     ///
     /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
     pub fn custom_attr_unchecked(
         mut self,
         key: impl Into<Cow<'static, str>>,
-        value: impl AnyAttributeValue,
+        value: impl IntoAttribute<Any>,
     ) -> Self {
         let key = key.into();
         debug_assert!(!key.chars().any(|c| c.is_whitespace()
@@ -560,9 +566,9 @@ impl ToHtml for CustomElement {
 /// Puts content directly into HTML bypassing HTML-escaping.
 ///
 /// ```
-/// # use htmx::{htmx, RawHtml};
+/// # use htmx::{html, RawHtml};
 /// # insta::assert_display_snapshot!("doc-RawHtml",
-/// htmx! {
+/// html! {
 ///     "this < will be > escaped "
 ///     <RawHtml("This < will > not")/>
 /// }
@@ -591,5 +597,14 @@ impl ToHtml for RawHtml<'_> {
         Self: Sized,
     {
         Html(self.0.into())
+    }
+}
+
+/// CSS that can both be put [`html!`] or returned from an endpoint.
+pub struct Css<'a>(pub Cow<'a, str>);
+
+impl ToHtml for Css<'_> {
+    fn write_to_html(&self, html: &mut Html) {
+        style::builder().child(self.0.as_ref()).write_to_html(html);
     }
 }

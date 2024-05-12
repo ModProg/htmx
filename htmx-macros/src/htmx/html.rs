@@ -1,6 +1,6 @@
 use htmx_script::{Script, ToJs};
-use manyhow::{ensure, Result};
-use proc_macro2::{TokenStream, TokenTree};
+use manyhow::{ensure, ErrorMessage, Result};
+use proc_macro2::TokenStream;
 use quote::ToTokens;
 use rstml::atoms::{CloseTag, OpenTag};
 use rstml::node::{
@@ -11,58 +11,35 @@ use rstml::recoverable::Recoverable;
 use syn::spanned::Spanned;
 use syn::{parse2, Expr, ExprLit, ExprPath, Lit, LitStr, Stmt};
 
-use crate::special_components::Node;
+use super::special_components::{Node, Special};
 use crate::*;
 
-pub fn htmx(input: TokenStream) -> Result {
-    // https://github.com/rust-lang/rust-analyzer/issues/15572
-    // let htmx = match (
-    //     proc_macro_crate::crate_name("htmx"),
-    //     std::env::var("CARGO_CRATE_NAME").as_deref(),
-    // ) { (Ok(FoundCrate::Itself), Ok("htmx")) => quote!(crate),
-    //   (Ok(FoundCrate::Name(name)), _) => { let ident = Ident::new(&name,
-    //   Span::call_site()); quote!(::#ident) } _ => quote!(::htmx),
-    // };
-    let htmx = htmx_crate();
-
-    let mut input = input.into_iter().peekable();
-
-    let htmx = match input.peek() {
-        Some(TokenTree::Ident(ident)) if ident == "crate" => {
-            input.next();
-            quote!(crate)
-        }
-        _ => htmx,
-    };
-
-    if input.peek().is_none() {
-        return Ok(quote!(#htmx::Html::new()));
-    }
-
+pub fn html(input: TokenStream) -> Result {
     let nodes = rstml::Parser::new(
         rstml::ParserConfig::new()
             .recover_block(true)
             .element_close_use_default_wildcard_ident(false)
+            .custom_node::<Special>()
             .raw_text_elements(["script"].into()),
     )
     // TODO parse_recoverable
-    .parse_custom(input.collect::<TokenStream>())?
+    .parse_simple(input)?
     .into_iter()
-    .map(|n| expand_node(n, &htmx, false))
+    .map(|n| expand_node(n, false))
     .collect::<Result>()?;
 
     Ok(quote! {
-        #use #htmx::{ToHtml, Html, IntoHtmlElements};
+        #use ::htmx::{ToHtml, Html, IntoHtmlElements};
         {
-            use #htmx::native::*;
-            let mut $htmx = Html::new();
+            use ::htmx::native::*;
+            let mut __htmx = Html::new();
             #nodes
-            $htmx
+            __htmx
         }
     })
 }
 
-pub fn expand_node(node: Node, htmx: &TokenStream, child: bool) -> Result {
+pub fn expand_node(node: Node, child: bool) -> Result {
     Ok(match node {
         Node::Comment(_) => todo!("{}", line!()),
         Node::Doctype(_) => todo!("{}", line!()),
@@ -76,7 +53,7 @@ pub fn expand_node(node: Node, htmx: &TokenStream, child: bool) -> Result {
             ..
         }) => {
             let script = name.to_string() == "script";
-            let (name, custom) = name_to_struct(name, htmx)?;
+            let (name, custom) = name_to_struct(name)?;
             let attributes = attributes
                 .into_iter()
                 .map(|attribute| match attribute {
@@ -101,20 +78,20 @@ pub fn expand_node(node: Node, htmx: &TokenStream, child: bool) -> Result {
                 };
                 let script = script.into_token_stream();
                 if let Ok(script) = parse2::<LitStr>(script.clone()) {
-                    quote!($node = $node.child(#script);)
+                    quote!(__node = __node.child(#script);)
                 } else if let Ok(block) =
                     parse2::<Recoverable<NodeBlock>>(script.clone()).map(Recoverable::inner)
                 {
-                    quote!($node = $node.child({#[allow(unused_braces)] #block});)
+                    quote!(__node = __node.child({#[allow(unused_braces)] #block});)
                 } else {
                     let script: Script = parse2(script)?;
                     let script = script.to_java_script();
-                    quote!($node = $node.child(#script);)
+                    quote!(__node = __node.child(#script);)
                 }
             } else {
-                expand_nodes(children, htmx, true)?
+                expand_nodes(children, true)?
             };
-            let main = quote!({let mut $node = #name #(.#attributes)*; #children $node.build()});
+            let main = quote!({let mut __node = #name #(.#attributes)*; #children __node.build()});
 
             let main = match close_tag {
                 Some(CloseTag {
@@ -127,39 +104,44 @@ pub fn expand_node(node: Node, htmx: &TokenStream, child: bool) -> Result {
                 _ => main,
             };
             if child {
-                quote!($node = $node.child(&#main);)
+                quote!(__node = __node.child(&#main);)
             } else {
-                quote!(#htmx::ToHtml::write_to_html(&#main, &mut $htmx);)
+                quote!(::htmx::ToHtml::write_to_html(&#main, &mut __htmx);)
             }
         }
         Node::Block(_) | Node::Text(_) => {
             if child {
-                quote!($node = $node.child(&{#[allow(unused_braces)] #node});)
+                quote!(__node = __node.child(&{#[allow(unused_braces)] #node});)
             } else {
-                quote!(#htmx::ToHtml::write_to_html(&{#[allow(unused_braces)] #node}, &mut $htmx);)
+                quote!(::htmx::ToHtml::write_to_html(&{#[allow(unused_braces)] #node}, &mut __htmx);)
             }
         }
         Node::RawText(_) => todo!("{}", line!()),
-        Node::Custom(c) => c.expand_node(htmx, child)?,
+        Node::Custom(c) => c.expand_node(child)?,
     })
 }
 
-pub fn expand_nodes(nodes: Vec<Node>, htmx: &TokenStream, child: bool) -> Result {
-    nodes
-        .into_iter()
-        .map(|n| expand_node(n, htmx, child))
-        .collect()
+pub fn expand_nodes(nodes: Vec<Node>, child: bool) -> Result {
+    nodes.into_iter().map(|n| expand_node(n, child)).collect()
 }
 
-fn name_to_struct(name: NodeName, htmx: &TokenStream) -> Result<(TokenStream, bool)> {
+pub fn ensure_tag_name(name: String, span: impl ToTokens) -> Result<String, ErrorMessage> {
+    ensure!(
+        name.to_ascii_lowercase().chars()
+            .all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
+        span,
+        "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
+        // TODO similar function but with css error: https://drafts.csswg.org/css-syntax-3/#non-ascii-ident-code-point
+    );
+    Ok(name)
+}
+
+fn name_to_struct(name: NodeName) -> Result<(TokenStream, bool)> {
     match name {
         NodeName::Path(path) => Ok((quote!(#path::builder()), false)),
         name @ NodeName::Punctuated(_) => {
-            let name = name.to_string();
-            ensure!(name.to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
-         "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
-        );
-            Ok((quote!(#htmx::CustomElement::new_unchecked(#name)), true))
+            let name = ensure_tag_name(name.to_string(), name)?;
+            Ok((quote!(::htmx::CustomElement::new_unchecked(#name)), true))
         }
         // This {...}
         NodeName::Block(name) => {
@@ -173,13 +155,10 @@ fn name_to_struct(name: NodeName, htmx: &TokenStream) -> Result<(TokenStream, bo
                 ),
             ] = &name.stmts[..]
             {
-                let name = name.value();
-                ensure!(name.to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
-                 "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
-                );
-                Ok((quote!(#htmx::CustomElement::new_unchecked(#name)), true))
+                let name = ensure_tag_name(name.value(), name)?;
+                Ok((quote!(::htmx::CustomElement::new_unchecked(#name)), true))
             } else {
-                Ok((quote!(#htmx::CustomElement::new(#name)), true))
+                Ok((quote!(::htmx::CustomElement::new(#name)), true))
             }
         }
     }

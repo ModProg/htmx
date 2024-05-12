@@ -8,10 +8,10 @@ use std::error::Error;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Form, Router};
-use htmx::{htmx, HtmxSrc};
+use htmx::{html, HtmxSrc};
 
 async fn index() -> impl IntoResponse {
-    htmx! {
+    html! {
         <head>
             <HtmxSrc/>
         </head>
@@ -24,7 +24,7 @@ async fn index() -> impl IntoResponse {
 }
 
 async fn greet(Form(form): Form<HashMap<String, String>>) -> impl IntoResponse {
-    htmx! {
+    html! {
         "Hello "
         {form.get("name").map(|name| format!("{name}! "))}
         <a href="/"> ":D" </a>
