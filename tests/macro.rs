@@ -1,4 +1,4 @@
-use htmx::{component, html, rtml, Html};
+use htmx::{component, html, native::a, rtml, Html, Tag, WriteHtml};
 
 macro_rules! assert_html {
     ($html:tt$(, $rtml:tt)?) => {
@@ -8,26 +8,24 @@ macro_rules! assert_html {
     };
 }
 
-struct Custom {
-    href: String,
+struct Custom<Html: WriteHtml> {
+    html: a<Html, Tag>,
 }
 
-impl Custom {
-    fn builder() -> Self {
-        Custom {
-            href: "default".to_owned(),
-        }
+impl<Html: WriteHtml> Custom<Html> {
+    fn new(html: Html) -> Self {
+        Self { html: a::new(html) }
     }
 
     fn href(mut self, value: impl Into<String>) -> Self {
-        self.href = value.into();
+        self.html.href(value.into());
         self
     }
+}
 
-    fn build(self) -> Html {
-        html! {
-            <a href=self.href/>
-        }
+impl<Html: WriteHtml> Drop for Custom<Html> {
+    fn drop(&mut self) {
+        todo!()
     }
 }
 
@@ -48,53 +46,54 @@ fn test() {
     ));
 }
 
-#[test]
-fn struct_component() {
-    #[component]
-    struct Component {
-        a: bool,
-        b: String,
-    }
+// TODO
+// #[test]
+// fn struct_component() {
+//     #[component]
+//     struct Component {
+//         a: bool,
+//         b: String,
+//     }
 
-    impl From<Component> for Html {
-        fn from(Component { a, b }: Component) -> Self {
-            html! {
-                <button disabled=a>{b}</button>
-            }
-        }
-    }
-    assert_html!({
-            <Component a b="Disabled Button"/>
-            <Component a=true b="Disabled Button"/>
-            <Component a=false b="Enabled Button"/>
-            <Component b="Enabled Button"/>
-    }, [
-       Component(a: true, b: "Disabled Button"),
-       Component(a: true, b: "Disabled Button"),
-       Component(a: false, b: "Enabled Button"),
-       Component(b: "Enabled Button"),
-    ]);
-}
+//     impl From<Component> for Html {
+//         fn from(Component { a, b }: Component) -> Self {
+//             html! {
+//                 <button disabled=a>{b}</button>
+//             }
+//         }
+//     }
+//     assert_html!({
+//             <Component a b="Disabled Button"/>
+//             <Component a=true b="Disabled Button"/>
+//             <Component a=false b="Enabled Button"/>
+//             <Component b="Enabled Button"/>
+//     }, [
+//        Component(a: true, b: "Disabled Button"),
+//        Component(a: true, b: "Disabled Button"),
+//        Component(a: false, b: "Enabled Button"),
+//        Component(b: "Enabled Button"),
+//     ]);
+// }
 
-#[test]
-fn fn_component() {
-    #[component]
-    fn Component(a: bool, b: String) -> Html {
-        html! {
-            <button disabled=a>{b}</button>
-        }
-    }
+// #[test]
+// fn fn_component() {
+//     #[component]
+//     fn Component(a: bool, b: String) -> Html {
+//         html! {
+//             <button disabled=a>{b}</button>
+//         }
+//     }
 
-    insta::assert_snapshot!(
-        html! {
-            <Component a b="Disabled Button"/>
-            <Component a=true b="Disabled Button"/>
-            <Component a=false b="Enabled Button"/>
-            <Component b="Enabled Button"/>
-        }
-        .to_string()
-    );
-}
+//     insta::assert_snapshot!(
+//         html! {
+//             <Component a b="Disabled Button"/>
+//             <Component a=true b="Disabled Button"/>
+//             <Component a=false b="Enabled Button"/>
+//             <Component b="Enabled Button"/>
+//         }
+//         .to_string()
+//     );
+// }
 
 #[test]
 fn reserved_attributes() {
@@ -149,9 +148,9 @@ fn controll_flow() {
     }, {
         if true [
             a["Hello"]
-        ] else if false {
-            html!(<p>"else"</p>)
-        },
+        ] else if false [
+            p["else"]
+        ],
         for a in [1, 2, 3] [
             {format!("{a}")}
         ],

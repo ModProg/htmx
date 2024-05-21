@@ -75,12 +75,12 @@ pub enum Special {
 }
 
 impl Special {
-    pub(crate) fn expand_node(self, child: bool) -> Result {
+    pub(crate) fn expand_node(self) -> Result {
         match self {
-            Special::If(if_) => if_.expand_node(child),
-            Special::For(for_) => for_.expand_node(child),
-            Special::While(while_) => while_.expand_node(child),
-            Special::FunctionCall(function_call) => function_call.expand_node(child),
+            Special::If(if_) => if_.expand_node(),
+            Special::For(for_) => for_.expand_node(),
+            Special::While(while_) => while_.expand_node(),
+            Special::FunctionCall(function_call) => function_call.expand_node(),
         }
     }
 }
@@ -124,7 +124,7 @@ pub struct If {
 }
 
 impl If {
-    fn expand_node(self, child: bool) -> Result {
+    fn expand_node(self) -> Result {
         let If {
             if_token,
             condition,
@@ -134,9 +134,9 @@ impl If {
         } = self;
         let body = then_branch
             .into_iter()
-            .map(|n| expand_node(n, child))
+            .map(expand_node)
             .collect::<Result>()?;
-        let else_branch = else_branch.expand_node(child)?;
+        let else_branch = else_branch.expand_node()?;
         Ok(quote! {
             #if_token #condition {
                 #body
@@ -162,17 +162,17 @@ pub enum ElseBranch {
     },
 }
 impl ElseBranch {
-    fn expand_node(self, child: bool) -> Result {
+    fn expand_node(self) -> Result {
         Ok(match self {
             ElseBranch::None => quote!(),
             ElseBranch::Else {
                 else_token, body, ..
             } => {
-                let body = expand_nodes(body, child)?;
+                let body = expand_nodes(body)?;
                 quote!( #else_token {#body} )
             }
             ElseBranch::ElseIf { else_token, body } => {
-                let body = body.expand_node(child)?;
+                let body = body.expand_node()?;
                 quote!(#else_token #body)
             }
         })
@@ -221,7 +221,7 @@ pub struct For {
     pub body: Vec<Node>,
 }
 impl For {
-    fn expand_node(self, child: bool) -> Result {
+    fn expand_node(self) -> Result {
         let Self {
             for_token,
             pat,
@@ -230,7 +230,7 @@ impl For {
             body,
             ..
         } = self;
-        let body = expand_nodes(body, child)?;
+        let body = expand_nodes(body)?;
         Ok(quote!(#for_token #pat #in_token #expr { #body }))
     }
 }
@@ -261,14 +261,14 @@ pub struct While {
 }
 
 impl While {
-    fn expand_node(self, child: bool) -> Result {
+    fn expand_node(self) -> Result {
         let Self {
             while_token,
             expr,
             body,
             ..
         } = self;
-        let body = expand_nodes(body, child)?;
+        let body = expand_nodes(body)?;
         Ok(quote!(#while_token #expr { #body }))
     }
 }
@@ -299,14 +299,10 @@ pub struct FunctionCall {
 }
 
 impl FunctionCall {
-    fn expand_node(self, child: bool) -> Result {
+    fn expand_node(self) -> Result {
         let Self { function, args, .. } = self;
         let args = args.into_iter();
-        Ok(if child {
-            quote!(__node = __node.child(&#function(#(Into::into(#args),)*));)
-        } else {
-            quote!(::htmx::ToHtml::write_to_html(&#function(#(Into::into(#args),)*), &mut __htmx);)
-        })
+        Ok(quote!(::htmx::ToHtml::to_html(&#function(#(Into::into(#args),)*), &mut __html);))
     }
 }
 

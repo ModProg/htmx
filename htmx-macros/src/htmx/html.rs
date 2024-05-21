@@ -1,6 +1,7 @@
 use htmx_script::{Script, ToJs};
 use manyhow::{ensure, ErrorMessage, Result};
 use proc_macro2::TokenStream;
+use proc_macro_utils::TokenStream2Ext;
 use quote::ToTokens;
 use rstml::atoms::{CloseTag, OpenTag};
 use rstml::node::{
@@ -15,6 +16,14 @@ use super::special_components::{Node, Special};
 use crate::*;
 
 pub fn html(input: TokenStream) -> Result {
+    let mut parser = input.clone().parser();
+    let (input, expr) =
+        if let ( Some(expr), Some(_)) = (parser.next_expression(), parser.next_tt_fat_arrow()) {
+            (parser.into_token_stream(), quote!(&mut #expr))
+        } else {
+            (input, quote!(::htmx::Html::new()))
+        };
+
     let nodes = rstml::Parser::new(
         rstml::ParserConfig::new()
             .recover_block(true)
@@ -25,21 +34,20 @@ pub fn html(input: TokenStream) -> Result {
     // TODO parse_recoverable
     .parse_simple(input)?
     .into_iter()
-    .map(|n| expand_node(n, false))
+    .map(expand_node)
     .collect::<Result>()?;
 
     Ok(quote! {
-        #use ::htmx::{ToHtml, Html, IntoHtmlElements};
         {
             use ::htmx::native::*;
-            let mut __htmx = Html::new();
+            let mut __html = #expr;
             #nodes
-            __htmx
+            __html
         }
     })
 }
 
-pub fn expand_node(node: Node, child: bool) -> Result {
+pub fn expand_node(node: Node) -> Result {
     Ok(match node {
         Node::Comment(_) => todo!("{}", line!()),
         Node::Doctype(_) => todo!("{}", line!()),
@@ -73,56 +81,49 @@ pub fn expand_node(node: Node, child: bool) -> Result {
             let children = if children.is_empty() {
                 quote!()
             } else if script {
+                // TODO scripts
                 let Some(Node::RawText(script)) = children.first() else {
                     unreachable!("script always raw text")
                 };
                 let script = script.into_token_stream();
                 if let Ok(script) = parse2::<LitStr>(script.clone()) {
-                    quote!(__node = __node.child(#script);)
+                    quote!(__html.child_expr(#script);)
                 } else if let Ok(block) =
                     parse2::<Recoverable<NodeBlock>>(script.clone()).map(Recoverable::inner)
                 {
-                    quote!(__node = __node.child({#[allow(unused_braces)] #block});)
+                    quote!(__html.child_expr({#[allow(unused_braces)] #block});)
                 } else {
                     let script: Script = parse2(script)?;
                     let script = script.to_java_script();
-                    quote!(__node = __node.child(#script);)
+                    quote!(__html.child(#script);)
                 }
             } else {
-                expand_nodes(children, true)?
+                expand_nodes(children)?
             };
-            let main = quote!({let mut __node = #name #(.#attributes)*; #children __node.build()});
+            let body = (!children.is_empty()).then(|| quote!(let mut __html = __html.body();));
+            let main = quote!({let mut __html = #name #(__html.#attributes;)* #body; #children});
 
-            let main = match close_tag {
+            match close_tag {
                 Some(CloseTag {
                     name: name @ NodeName::Path(_),
                     ..
                 }) if !name.is_wildcard() => {
                     // If close_tag was specified, use it so coloring happens
-                    quote!({let _: #name; #main})
+                    quote!({#name::unused(); #main})
                 }
                 _ => main,
-            };
-            if child {
-                quote!(__node = __node.child(&#main);)
-            } else {
-                quote!(::htmx::ToHtml::write_to_html(&#main, &mut __htmx);)
             }
         }
         Node::Block(_) | Node::Text(_) => {
-            if child {
-                quote!(__node = __node.child(&{#[allow(unused_braces)] #node});)
-            } else {
-                quote!(::htmx::ToHtml::write_to_html(&{#[allow(unused_braces)] #node}, &mut __htmx);)
-            }
+            quote!(::htmx::ToHtml::to_html(&{#[allow(unused_braces)] #node}, &mut __html);)
         }
         Node::RawText(_) => todo!("{}", line!()),
-        Node::Custom(c) => c.expand_node(child)?,
+        Node::Custom(c) => c.expand_node()?,
     })
 }
 
-pub fn expand_nodes(nodes: Vec<Node>, child: bool) -> Result {
-    nodes.into_iter().map(|n| expand_node(n, child)).collect()
+pub fn expand_nodes(nodes: Vec<Node>) -> Result {
+    nodes.into_iter().map(expand_node).collect()
 }
 
 pub fn ensure_tag_name(name: String, span: impl ToTokens) -> Result<String, ErrorMessage> {
@@ -138,10 +139,13 @@ pub fn ensure_tag_name(name: String, span: impl ToTokens) -> Result<String, Erro
 
 fn name_to_struct(name: NodeName) -> Result<(TokenStream, bool)> {
     match name {
-        NodeName::Path(path) => Ok((quote!(#path::builder()), false)),
+        NodeName::Path(path) => Ok((quote!(#path::new(&mut __html);), false)),
         name @ NodeName::Punctuated(_) => {
             let name = ensure_tag_name(name.to_string(), name)?;
-            Ok((quote!(::htmx::CustomElement::new_unchecked(#name)), true))
+            Ok((
+                quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name);),
+                true,
+            ))
         }
         // This {...}
         NodeName::Block(name) => {
@@ -156,9 +160,15 @@ fn name_to_struct(name: NodeName) -> Result<(TokenStream, bool)> {
             ] = &name.stmts[..]
             {
                 let name = ensure_tag_name(name.value(), name)?;
-                Ok((quote!(::htmx::CustomElement::new_unchecked(#name)), true))
+                Ok((
+                    quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name);),
+                    true,
+                ))
             } else {
-                Ok((quote!(::htmx::CustomElement::new(#name)), true))
+                Ok((
+                    quote!(::htmx::CustomElement::new(&mut __html, #name);),
+                    true,
+                ))
             }
         }
     }

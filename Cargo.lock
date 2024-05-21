@@ -1466,8 +1466,8 @@ dependencies = [
  "derive_more 1.0.0-beta.6",
  "forr",
  "htmx-script",
- "manyhow 0.8.1",
- "proc-macro-utils 0.8.0",
+ "manyhow 0.9.0",
+ "proc-macro-utils 0.10.0",
  "proc-macro2",
  "quote",
  "quote-use 0.7.2",
@@ -1844,11 +1844,11 @@ dependencies = [
 
 [[package]]
 name = "manyhow"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "516b76546495d933baa165075b95c0a15e8f7ef75e53f56b19b7144d80fd52bd"
+checksum = "9aebef87880bafc898c6bed1435e8fdc58634275ff97693a4bb96ad561c73c43"
 dependencies = [
- "manyhow-macros 0.8.1",
+ "manyhow-macros 0.9.0",
  "proc-macro2",
  "quote",
  "syn 2.0.53",
@@ -1879,9 +1879,9 @@ dependencies = [
 
 [[package]]
 name = "manyhow-macros"
-version = "0.8.1"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ba072c0eadade3160232e70893311f1f8903974488096e2eb8e48caba2f0cf1"
+checksum = "f74cc8a0d8b05a7e919011c78a2744e7dea66567c05fb046666f3bae383d8d04"
 dependencies = [
  "proc-macro-utils 0.8.0",
  "proc-macro2",
@@ -2406,6 +2406,17 @@ name = "proc-macro-utils"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c465d89134af1993ccbe4d4c859af29e73f049775f8174beb1de4789c7639a4a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "smallvec",
+]
+
+[[package]]
+name = "proc-macro-utils"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eeaf08a13de400bc215877b5bdc088f241b12eb42f0a548d3390dc1c56bb7071"
 dependencies = [
  "proc-macro2",
  "quote",

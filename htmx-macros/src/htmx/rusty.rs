@@ -15,27 +15,21 @@ use super::html::ensure_tag_name;
 use crate::*;
 
 pub fn html(input: TokenStream) -> Result<proc_macro2::TokenStream, manyhow::Error> {
-    let nodes = expand_nodes(
-        Punctuated::<Node, Token![,]>::parse_terminated.parse2(input)?,
-        false,
-    );
+    let nodes = expand_nodes(Punctuated::<Node, Token![,]>::parse_terminated.parse2(input)?);
 
     Ok(quote! {
         #use ::htmx::{ToHtml, Html, IntoHtmlElements};
         {
             use ::htmx::native::*;
-            let mut __htmx = Html::new();
+            let mut __html = Html::new();
             #(#nodes)*
-            __htmx
+            __html
         }
     })
 }
 
-fn expand_nodes(
-    nodes: impl IntoIterator<Item = Node>,
-    child: bool,
-) -> impl Iterator<Item = TokenStream> {
-    nodes.into_iter().map(move |n| n.expand(child))
+fn expand_nodes(nodes: impl IntoIterator<Item = Node>) -> impl Iterator<Item = TokenStream> {
+    nodes.into_iter().map(move |n| n.expand())
 }
 
 fn peek_alone(p: impl Peek, input: ParseStream) -> bool {
@@ -63,19 +57,18 @@ enum Node {
 }
 
 impl Node {
-    fn expand(self, child: bool) -> TokenStream {
-        let value = match self {
-            Node::String(lit) => lit.into_token_stream(),
-            Node::Block(block) => block.into_token_stream(),
+    fn expand(self) -> TokenStream {
+        match self {
+            Node::String(lit) => {
+                quote!(::htmx::ToHtml::to_html(&#lit, &mut __html);)
+            }
+            Node::Block(block) => {
+                quote!(::htmx::ToHtml::to_html(&#block, &mut __html);)
+            },
             Node::Element(element) => element.expand(),
-            Node::If(node) => return node.expand(child),
-            Node::For(node) => return node.expand(child),
-            Node::While(node) => return node.expand(child),
-        };
-        if child {
-            quote!(__node = __node.child(&#value);)
-        } else {
-            quote!(::htmx::ToHtml::write_to_html(&#value, &mut __htmx);)
+            Node::If(node) => node.expand(),
+            Node::For(node) => node.expand(),
+            Node::While(node) => node.expand(),
         }
     }
 }
@@ -99,7 +92,7 @@ struct If {
 }
 
 impl If {
-    fn expand(self, child: bool) -> TokenStream {
+    fn expand(self) -> TokenStream {
         let If {
             if_token,
             condition,
@@ -107,8 +100,8 @@ impl If {
             else_branch,
             ..
         } = self;
-        let body = expand_nodes(then_branch, child);
-        let else_branch = else_branch.expand(child);
+        let body = expand_nodes(then_branch);
+        let else_branch = else_branch.expand();
         quote! {
             #if_token #condition {
                 #(#body)*
@@ -248,17 +241,17 @@ enum ElseBranch {
 }
 
 impl ElseBranch {
-    fn expand(self, child: bool) -> TokenStream {
+    fn expand(self) -> TokenStream {
         match self {
             ElseBranch::None => quote!(),
             ElseBranch::Else {
                 else_token, body, ..
             } => {
-                let body = expand_nodes(body, child);
+                let body = expand_nodes(body);
                 quote!( #else_token {#(#body)*} )
             }
             ElseBranch::ElseIf { else_token, body } => {
-                let body = body.expand(child);
+                let body = body.expand();
                 quote!(#else_token #body)
             }
         }
@@ -307,7 +300,7 @@ struct For {
 }
 
 impl For {
-    fn expand(self, child: bool) -> TokenStream {
+    fn expand(self) -> TokenStream {
         let Self {
             for_token,
             pat,
@@ -316,7 +309,7 @@ impl For {
             body,
             ..
         } = self;
-        let body = expand_nodes(body, child);
+        let body = expand_nodes(body);
         quote! {
             #for_token #pat #in_token #expr {
                 #(#body)*
@@ -352,14 +345,14 @@ struct While {
 }
 
 impl While {
-    fn expand(self, child: bool) -> TokenStream {
+    fn expand(self) -> TokenStream {
         let Self {
             while_token,
             expr,
             body,
             ..
         } = self;
-        let body = expand_nodes(body, child);
+        let body = expand_nodes(body);
         quote! {
             #while_token #expr {
                 #(#body)*
@@ -395,29 +388,35 @@ impl Element {
     fn expand(self) -> TokenStream {
         let mut attrs = self.attrs.unwrap_or_default();
         let name = match self.path {
-            ElementName::String(name) => quote!(::htmx::CustomElement::new_unchecked(#name)),
-            ElementName::Block(block) => quote!(::htmx::CustomElement::new(#block)),
+            ElementName::String(name) => {
+                quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name);)
+            }
+            ElementName::Block(block) => quote!(::htmx::CustomElement::new(&mut __html, #block);),
             ElementName::Classes(classes) => {
                 attrs.attrs.push(Attr::Classes(classes));
-                quote!(div::builder())
+                quote!(div::new(&mut __html))
             }
-            ElementName::Path(path) => quote!(#path::builder()),
+            ElementName::Path(path) => quote!(#path::new(&mut __html);),
         };
-        let children = expand_nodes(
+
+        let mut children = expand_nodes(
             attrs
                 .content
                 .into_iter()
                 .flat_map(|(_, c)| c)
                 .chain(self.children),
-            true,
-        );
+        )
+        .peekable();
+
         let attrs = attrs.attrs.into_iter().map(Attr::expand);
 
+        let body = children.peek().is_some().then(|| quote!(let mut __html = __html.body()));
+
         quote!({
-            let mut __node = #name
-            #(#attrs)*;
+            let mut __html = #name
+            #(__html #attrs;)* 
+            #body;
             #(#children)*
-            __node.build()
         })
     }
 }

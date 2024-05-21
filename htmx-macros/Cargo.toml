@@ -20,8 +20,8 @@ attribute-derive.path = "../../../Rust/attribute-derive"
 derive_more = { version = "1.0.0-beta.6", features = ["display"] }
 forr = "0.2.2"
 htmx-script = { version = "0.1.0", path = "../htmx-script" }
-manyhow = "0.8.1"
-proc-macro-utils = "0.8.0"
+manyhow = "0.9"
+proc-macro-utils = "0.10"
 proc-macro2 = "1.0.66"
 quote = "1.0.33"
 quote-use = "0.7.2"

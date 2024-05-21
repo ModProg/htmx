@@ -1,45 +1,59 @@
 //! Native HTML elements
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, clippy::return_self_not_must_use)]
 
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::fmt::Write;
+use std::fmt::Display;
+use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
 
 use forr::{forr, iff};
-use html_escape::encode_double_quoted_attribute;
 
-use crate::attributes::{
-    Any, DateTime, FlagOrValue, IntoAttribute, Number, TimeDateTime, ValueOrFlag,
-};
-use crate::{Html, ToHtml};
+use crate::attributes::{Any, DateTime, FlagOrValue, Number, TimeDateTime, ToAttribute};
+use crate::{Body, ClassesAttr, CustomAttr, ElementState, StyleAttr, Tag, ToHtml, WriteHtml};
 
 forr! {$type:ty in [&str, String, Cow<'_, str>]$*
     impl ToHtml for $type {
-        fn write_to_html(&self, out: &mut Html) {
-            write!(out.0, "{}", html_escape::encode_text(&self)).unwrap();
+        fn to_html(&self, mut out: impl WriteHtml) {
+            write!(out, "{}", html_escape::encode_text(&self));
+        }
+    }
+
+    impl ToScript for $type {
+        fn to_script(&self, mut out: impl WriteHtml) {
+            write!(out, "{}", html_escape::encode_script(&self));
+        }
+    }
+
+    impl ToStyle for $type {
+        fn to_style(&self, mut out: impl WriteHtml) {
+            write!(out, "{}", html_escape::encode_style(&self));
         }
     }
 }
 
 impl ToHtml for char {
-    fn write_to_html(&self, out: &mut Html) {
-        write!(out.0, "{}", html_escape::encode_text(&self.to_string())).unwrap();
+    fn to_html(&self, mut out: impl WriteHtml) {
+        write!(out, "{}", html_escape::encode_text(&self.to_string()));
     }
 }
 
-struct ScriptContent<'a>(Cow<'a, str>);
+pub trait ToScript {
+    fn to_script(&self, out: impl WriteHtml);
+}
 
-impl ToHtml for ScriptContent<'_> {
-    fn write_to_html(&self, out: &mut Html) {
-        write!(out.0, " {} ", html_escape::encode_script(&self.0)).unwrap();
+impl<T: ToScript> ToScript for &T {
+    fn to_script(&self, out: impl WriteHtml) {
+        T::to_script(self, out);
     }
 }
 
-struct StyleContent<'a>(Cow<'a, str>);
+pub trait ToStyle {
+    fn to_style(&self, out: impl WriteHtml);
+}
 
-impl ToHtml for StyleContent<'_> {
-    fn write_to_html(&self, out: &mut Html) {
-        write!(out.0, " {} ", html_escape::encode_style(&self.0)).unwrap();
+impl<T: ToStyle> ToStyle for &T {
+    fn to_style(&self, out: impl WriteHtml) {
+        T::to_style(self, out);
     }
 }
 
@@ -57,10 +71,10 @@ macro_rules! attribute {
         attribute!($elem|$name=$actual<String>);
     };
     ($elem:ident|$name:ident < $type:ty >) => {
-        attribute!($elem, $name, stringify!($name), impl IntoAttribute<$type>);
+        attribute!($elem, $name, stringify!($name), impl ToAttribute<$type>);
     };
     ($elem:ident|$name:ident=$actual:tt< $type:ty >) => {
-        attribute!($elem, $name, $actual, impl IntoAttribute<$type>);
+        attribute!($elem, $name, $actual, impl ToAttribute<$type>);
     };
     (global, $name:ident, $actual:expr, $type:ty) => {
         attr_fn!(concat!("Sets the [`", $actual, "`](https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/", $actual, ") attribute."), $name, $actual, $type);
@@ -71,23 +85,16 @@ macro_rules! attribute {
     ($elem:ident, $name:ident, $actual:expr, $type:ty) => {
         attr_fn!(concat!("Sets the `", $actual, "` attribute on the [`<", stringify!($elem),">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/", stringify!($elem), "#attributes) element."), $name, $actual, $type);
     };
-    ($($doc:expr)?, $name:ident, $actual:tt, $type:ty) => {
-        $(#[doc = $doc])?
-        pub fn $name(mut self, value: $type) -> Self {
-            self.attributes
-                .insert($actual.into(), value.into_attribute());
-            self
-        }
-    };
 }
 
 macro_rules! attr_fn{
     ($($doc:expr)?, $name:ident, $actual:tt, $type:ty) => {
         $(#[doc = $doc])?
-        pub fn $name(mut self, value: $type) -> Self {
-            self.attributes
-                .insert($actual.into(), value.into_attribute());
-            self
+        pub fn $name(&mut self, value: $type) {
+            if !value.is_unset() {
+                write!(self.html, " {}", $actual);
+                value.write(&mut self.html);
+            }
         }
     }
 }
@@ -142,7 +149,7 @@ forr! { ($type:ty, $attrs:tt) in [
     (track, [default<bool>, kind/*subtitles,captions,descriptions,chapters,metadata*/, label, src, srclang]),
     (video, [autoplay<bool>, controls<bool>, crossorigin/*anonymous, use-credentials*/, height<Number>, loop_="loop"<bool>, muted<bool>, playsinline<bool>, poster, preload/*none,metadata,auto*/, src, width<Number>])
 ] $*
-    impl $type<'_> {
+    impl<T: WriteHtml> $type<T, Tag> {
         forr! { $attr:ty in $attrs $*
             attribute!($type|$attr);
         }
@@ -152,81 +159,61 @@ forr! { ($type:ty, $attrs:tt) in [
 forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi, bdo, blockquote, body, br, button, canvas, caption, cite, code, col, colgroup, data, datalist, dd, del, details, dfn, dialog, dl, dt, em, embeded, div, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, head, header, hgroup, hr, html, i, iframe, img, input, ins, kbd, label, legend, li, link, main, map, mark, menu, meta, meter, nav, noscript, object, ol, optgroup, option, output, p, picture, pre, progress, q, rp, rt, ruby, s, samp, script, search, section, select, slot, small, source, span, strong, style, sub, summary, sup, table, tbody, td, template, textarea, tfoot, th, thead, time, title, tr, track, u, ul, var, video, wbr, xmp] $*
 
     #[doc = concat!("The [`<", stringify!($type), ">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/", stringify!($type), ") element.")]
-    #[must_use]
-    #[derive(Default)]
-    pub struct $type<'a> {
-        attributes: HashMap<Cow<'a, str>, ValueOrFlag>,
-        inner: Html,
+    pub struct $type<T: WriteHtml, Attr: ElementState> {
+        html: ManuallyDrop<T>,
+        state: PhantomData<Attr>
     }
 
-    impl ToHtml for $type<'_> {
-        fn write_to_html(&self, out: &mut Html) {
-            write!(out.0, concat!("<", stringify!($type))).unwrap();
-            #[cfg(feature="sorted_attributes")]
-            let attributes = {
-                let mut attributes: Vec<_> = self.attributes.iter().collect();
-                attributes.sort_by_key(|e|e.0);
-                attributes
-            };
-            #[cfg(not(feature="sorted_attributes"))]
-            let attributes = &self.attributes;
-            for (key, value) in attributes {
-                debug_assert!(!key.chars().any(|c| c.is_whitespace()
-                    || c.is_control()
-                    || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-                match value {
-                    ValueOrFlag::Value(value) => {
-                        write!(out.0, " {key}=\"{}\"", encode_double_quoted_attribute(value)).unwrap();
-                    }
-                    ValueOrFlag::Flag => write!(out.0, " {key}").unwrap(),
-                    ValueOrFlag::Unset => continue,
-                }
-            }
-            write!(out.0, ">").unwrap();
-            self.inner.write_to_html(out);
-            iff!{!equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
-                write!(out.0, concat!("</", stringify!($type), ">")).unwrap();
-            }
-        }
+    impl $type<crate::Html, Tag> {
+        #[doc(hidden)]
+        pub fn unused() {}
     }
 
-    impl<'a> $type<'a> {
-        /// `builder()` is only present to be compatible with the builder
-        /// instructions used for custom components, it just returns [`Self::default()`].
-        #[doc(hidden)]
-        pub fn builder() -> Self {
-            Default::default()
-        }
+    impl<T: WriteHtml> $type<T, Tag> {
 
-        /// `build()` is only present to be compatible with the builder
-        /// instructions used for custom components, it is a no-op.
-        #[doc(hidden)]
-        pub fn build(self) -> Self {
-            self
-        }
-
-        iff! {!equals_any($type)[(script), (style), (area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
-            /// Adds a child component or element.
-            pub fn child(mut self, child: impl ToHtml) -> Self {
-                child.write_to_html(&mut self.inner);
-                self
+        pub fn new(mut html: T) -> Self {
+            html.write_open_tag_unchecked(stringify!($type));
+            Self {
+                html: ManuallyDrop::new(html),
+                state: PhantomData
             }
         }
 
-        iff! {equals($type)(script) $:
-            /// Adds JS code to the script.
-            pub fn child(mut self, child: impl Into<Cow<'a, str>>) -> Self {
-                ScriptContent(child.into()).write_to_html(&mut self.inner);
-                self
+        iff! {!equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
+            pub fn body(mut self) -> $type<T, Body> {
+                self.html.write_gt();
+                self.change_state()
             }
         }
 
-        iff! {equals($type)(style) $:
-            /// Adds CSS to the style.
-            pub fn child(mut self, child: impl Into<Cow<'a, str>>) -> Self {
-                ScriptContent(child.into()).write_to_html(&mut self.inner);
-                self
-            }
+        // iff! {equals($type)(script) $:
+        //     /// Adds JS code to the script.
+        //     pub fn child(mut self, child: impl Into<Cow<'a, str>>) -> Self {
+        //         ScriptContent(child.into()).write_to_html(&mut self.inner);
+        //         self
+        //     }
+        // }
+
+        // iff! {equals($type)(style) $:
+        //     /// Adds CSS to the style.
+        //     pub fn child(mut self, child: impl Into<Cow<'a, str>>) -> Self {
+        //         ScriptContent(child.into()).write_to_html(&mut self.inner);
+        //         self
+        //     }
+        // }
+
+        /// Sets a custom attribute.
+        ///
+        /// Useful for setting, e.g., `data-{key}`.
+        ///
+        /// # Panics
+        /// Panics on [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0).
+        pub fn custom_attr( &mut self, key: impl Display, value: impl ToAttribute<Any>)
+        {
+            assert!(!key.to_string().chars().any(|c| c.is_whitespace()
+                || c.is_control()
+                || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+            self.custom_attr_unchecked(key, value);
         }
 
         /// Sets a custom attribute.
@@ -235,14 +222,27 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         ///
         /// # Panics
         /// Panics on [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0).
-        pub fn custom_attr(mut self, key: impl Into<Cow<'a, str>>, value: impl IntoAttribute<Any>) -> Self
+        pub fn custom_attr_list(self, key: impl Display) -> $type<T, CustomAttr>
         {
-            let key = key.into();
-            assert!(!key.chars().any(|c| c.is_whitespace()
+            assert!(!key.to_string().chars().any(|c| c.is_whitespace()
                 || c.is_control()
                 || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-                self.attributes.insert(key.to_string().into(), value.into_attribute());
-            self
+            self.custom_attr_list_unchecked(key)
+        }
+
+
+        /// Sets a custom attribute, without checking for valid keys.
+        ///
+        /// Useful for setting, e.g., `data-{key}`.
+        ///
+        /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
+        pub fn custom_attr_unchecked(&mut self, key: impl Display, value: impl ToAttribute<Any>)
+        {
+            debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
+                || c.is_control()
+                || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+            write!(self.html, " {key}");
+            value.write(&mut self.html);
         }
 
         /// Sets a custom attribute, without checking for valid keys.
@@ -250,28 +250,32 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         /// Useful for setting, e.g., `data-{key}`.
         ///
         /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
-        pub fn custom_attr_unchecked(mut self, key: impl Into<Cow<'a, str>>, value: impl IntoAttribute<Any>) -> Self
+        pub fn custom_attr_list_unchecked(mut self, key: impl Display) -> $type<T, CustomAttr>
         {
-            let key = key.into();
-        assert!(!key.chars().any(|c| c.is_whitespace()
-            || c.is_control()
-            || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-            self.attributes.insert(key.to_string().into(), value.into_attribute());
-            self
+            debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
+                || c.is_control()
+                || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+            write!(self.html, " {key}=\"");
+            self.change_state()
         }
 
-        /// Adds a class to the element.
-        pub fn class<'b>(mut self, class: impl Into<Cow<'b, str>>) -> Self {
-            // TODO consider checking type
-            self.attributes.entry("class".into()).or_default().append(class);
-           self
+        /// Adds classes to the element.
+        pub fn classes(mut self) -> $type<T, ClassesAttr> {
+            write!(self.html, " classes=\"");
+            self.change_state()
+        }
+
+        /// Adds styles to the element.
+        pub fn style(mut self) -> $type<T, StyleAttr> {
+            write!(self.html, " style=\"");
+            self.change_state()
         }
 
         // Global attributes
         // TODO class should be able to specify multiple times
         forr! { $attr:ty in [
             // TODO ARIA: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes
-            accesskey<char>, autocapitalize/*off/none, on/sentence, words, characters*/, autofocus<bool>, contenteditable/*true, false, plaintext-only*/, dir/*ltr,rtl,auto*/, draggable/*true,false*/, enterkeyhint,hidden<FlagOrValue<String>>/*hidden|until-found*/, id, inert<bool>, inputmode/*none,text,decimal,numeric,tel,search,email,url*/, is, itemid, itemprop, itemref, itemscope, itemtype, lang, nonce, part, popover, rolle, slot, spellcheck<FlagOrValue<String>>/*true,false*/, style, tabindex, title, translate/*yes,no*/, virtualkeyboardpolicy/*auto,manual*/] $*
+            accesskey<char>, autocapitalize/*off/none, on/sentence, words, characters*/, autofocus<bool>, contenteditable/*true, false, plaintext-only*/, dir/*ltr,rtl,auto*/, draggable/*true,false*/, enterkeyhint,hidden<FlagOrValue<String>>/*hidden|until-found*/, id, inert<bool>, inputmode/*none,text,decimal,numeric,tel,search,email,url*/, is, itemid, itemprop, itemref, itemscope, itemtype, lang, nonce, part, popover, rolle, slot, spellcheck<FlagOrValue<String>>/*true,false*/, tabindex, title, translate/*yes,no*/, virtualkeyboardpolicy/*auto,manual*/] $*
             attribute!(global|$attr);
         }
         // Event handlers
@@ -279,6 +283,113 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
             onabort, onautocomplete, onautocompleteerror, onblur, oncancel, oncanplay, oncanplaythrough, onchange, onclick, onclose, oncontextmenu, oncuechange, ondblclick, ondrag, ondragend, ondragenter, ondragleave, ondragover, ondragstart, ondrop, ondurationchange, onemptied, onended, onerror, onfocus, oninput, oninvalid, onkeydown, onkeypress, onkeyup, onload, onloadeddata, onloadedmetadata, onloadstart, onmousedown, onmouseenter, onmouseleave, onmousemove, onmouseout, onmouseover, onmouseup, onmousewheel, onpause, onplay, onplaying, onprogress, onratechange, onreset, onresize, onscroll, onseeked, onseeking, onselect, onshow, onsort, onstalled, onsubmit, onsuspend, ontimeupdate, ontoggle, onvolumechange, onwaiting
         ] $*
             attribute!(event|$attr);
+        }
+    }
+
+    iff! {!equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
+
+        impl <T: WriteHtml> $type<T, Body> {
+            iff! {equals($type)(script) $:
+                pub fn child_expr(mut self, child: impl ToScript) -> Self {
+                    child.to_script(&mut self);
+                    self
+                }
+            }
+
+            iff! {equals($type)(style) $:
+                pub fn child_expr(mut self, child: impl ToStyle) -> Self {
+                    child.to_style(&mut self);
+                    self
+                }
+            }
+
+            iff! {!equals_any($type)[(style), (script)] $:
+                pub fn child_expr(mut self, child: impl ToHtml) -> Self {
+                    child.to_html(&mut self);
+                    self
+                }
+
+                pub fn child<C>(self, child: impl FnOnce(Self) -> C) -> C {
+                    child(self)
+                }
+            }
+        }
+
+        impl <Html: WriteHtml> WriteHtml for $type<Html, Body> {
+            fn write_str(&mut self, s: &str) {
+                self.html.write_str(s);
+            }
+
+            fn write_char(&mut self, c: char) {
+                self.html.write_char(c);
+            }
+
+            fn write_fmt(&mut self, a: std::fmt::Arguments) {
+                self.html.write_fmt(a);
+            }
+
+        }
+
+        impl<Html: WriteHtml, S: ElementState> $type<Html, S> {
+            pub fn close(mut self) -> Html {
+                S::close_tag(&mut self.html);
+                self.html.write_close_tag_unchecked(stringify!($type));
+                let html = unsafe { ManuallyDrop::take(&mut self.html) };
+                std::mem::forget(self);
+                html
+            }
+        }
+
+        impl <T: WriteHtml, Attr: ElementState> Drop for $type<T, Attr> {
+            fn drop(&mut self) {
+                Attr::close_tag(&mut self.html);
+                self.html.write_close_tag_unchecked(stringify!($type));
+            }
+        }
+    }
+
+    iff! {equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
+        impl <T: WriteHtml, Attr: ElementState> Drop for $type<T, Attr> {
+            fn drop(&mut self) {
+                Attr::close_tag(&mut self.html);
+                self.html.write_close_tag_unchecked(stringify!($type));
+            }
+        }
+
+        impl<Html: WriteHtml, S: ElementState> $type<Html, S> {
+            pub fn close(mut self) -> Html {
+                S::close_tag(&mut self.html);
+                let html = unsafe { ManuallyDrop::take(&mut self.html) };
+                std::mem::forget(self);
+                html
+            }
+        }
+    }
+
+    impl <T: WriteHtml, Attr: ElementState> $type<T, Attr> {
+        fn change_state<New: ElementState>(mut self) -> $type<T, New> {
+                let html = unsafe { ManuallyDrop::take(&mut self.html) };
+                std::mem::forget(self);
+                $type {
+                    html: ManuallyDrop::new(html),
+                    state: PhantomData
+                }
+        }
+
+    }
+
+
+    forr! {$Attr:ty in [CustomAttr, ClassesAttr, StyleAttr] $*
+        impl<T: WriteHtml> $type<T, $Attr> {
+            pub fn add(mut self, value: impl Display) -> Self {
+                write!(self.html, "; {value}");
+                self
+            }
+
+            pub fn close_attr(mut self) -> $type<T, Tag> {
+                self.html.write_quote();
+                self.change_state()
+            }
         }
     }
 }

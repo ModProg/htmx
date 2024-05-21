@@ -6,6 +6,8 @@ use std::num::{NonZeroU64, NonZeroU8};
 use derive_more::Display;
 use forr::forr;
 
+use crate::WriteHtml;
+
 /// An attribute that accepts an attribute value or a flag.
 pub struct FlagOrValue<T>(PhantomData<T>);
 
@@ -30,69 +32,77 @@ pub enum ValueOrFlag {
     Unset,
 }
 
-impl ValueOrFlag {
-    pub(crate) fn append<'a>(&mut self, value: impl Into<Cow<'a, str>>) {
-        match self {
-            ValueOrFlag::Value(c) => c.push_str(&value.into()),
-            _ => *self = Self::Value(value.into().into()),
-        }
-    }
-}
-
 /// Converts to an Attribute that accepts type `Output`, e.g.,
 /// [`Number`].
-pub trait IntoAttribute<Output> {
+pub trait ToAttribute<Output> {
     /// Converts into an attribute value.
-    fn into_attribute(self) -> ValueOrFlag;
-}
-
-impl<A: IntoAttribute<T> + Clone, T> IntoAttribute<T> for &A {
-    fn into_attribute(self) -> ValueOrFlag {
-        self.clone().into_attribute()
+    fn write(&self, html: impl WriteHtml);
+    fn write_inner(&self, html: impl WriteHtml);
+    fn is_unset(&self) -> bool {
+        false
     }
 }
 
-impl<A: IntoAttribute<T>, T> IntoAttribute<T> for Option<A> {
-    fn into_attribute(self) -> ValueOrFlag {
-        self.map_or(ValueOrFlag::Unset, IntoAttribute::into_attribute)
+impl<A: ToAttribute<T>, T> ToAttribute<T> for &A {
+    fn write(&self, html: impl WriteHtml) {
+        <A as ToAttribute<T>>::write(self, html);
+    }
+
+    fn write_inner(&self, html: impl WriteHtml) {
+        <A as ToAttribute<T>>::write_inner(self, html);
+    }
+
+    fn is_unset(&self) -> bool {
+        <A as ToAttribute<T>>::is_unset(self)
+    }
+}
+
+impl<A: ToAttribute<T>, T> ToAttribute<T> for Option<A> {
+    fn write(&self, html: impl WriteHtml) {
+        self.as_ref().unwrap().write(html);
+    }
+
+    fn write_inner(&self, html: impl WriteHtml) {
+        self.as_ref().unwrap().write(html);
+    }
+
+    fn is_unset(&self) -> bool {
+        self.is_none()
     }
 }
 
 macro_rules! into_attr {
-    ($target:ident, $types:tt, |$self:ident| $($tmpl:tt)*) => {
+    ($target:ident, $types:tt, $fn:ident, $fn_inner:ident) => {
         forr! { #type:ty in $types #*
-            impl IntoAttribute<$target> for #type {
-                fn into_attribute($self) -> ValueOrFlag {
-                    $($tmpl)*
-                }
-            }
-            impl IntoAttribute<Any> for #type {
-                fn into_attribute($self) -> ValueOrFlag {
-                    $($tmpl)*
-                }
-            }
-            impl IntoAttribute<FlagOrValue<$target>> for #type {
-                fn into_attribute($self) -> ValueOrFlag {
-                    $($tmpl)*
+            forr! {#gen:ty in [$target, Any, FlagOrValue<$target>] #*
+                impl ToAttribute<#gen> for #type {
+                    fn write(&self, mut html: impl WriteHtml) {
+                        html.$fn(self)
+                    }
+                    fn write_inner(&self, mut html: impl WriteHtml) {
+                        html.$fn_inner(self)
+                    }
                 }
             }
         }
-    }
+    };
 }
 
 into_attr! {
     Number,
     [u8, i8, u16, i16, u32, i32, f32, u64, i64, f64, u128, i128, isize, usize],
-    |self| ValueOrFlag::Value(self.to_string())
+    write_attr_value_unchecked,
+    write_attr_value_inner_unchecked
 }
 
 into_attr! {
     String,
     [&str, String, Cow<'_, str>],
-    |self| ValueOrFlag::Value(self.into())
+    write_attr_value_encoded,
+    write_attr_value_inner_encoded
 }
 
-into_attr! {  char, [char], |self| ValueOrFlag::Value(self.to_string()) }
+into_attr! {  char, [char], write_attr_value_encoded, write_attr_value_inner_encoded }
 
 // /// Trait accepted by an attribute that allows both values and flags.
 // pub trait FlagOrAttributeValue {
@@ -100,35 +110,47 @@ into_attr! {  char, [char], |self| ValueOrFlag::Value(self.to_string()) }
 //     fn into_attribute(self) -> ValueOrFlag;
 // }
 
-impl IntoAttribute<bool> for bool {
-    fn into_attribute(self) -> ValueOrFlag {
-        if self {
-            ValueOrFlag::Flag
-        } else {
-            ValueOrFlag::Unset
-        }
+impl ToAttribute<bool> for bool {
+    fn write(&self, _html: impl WriteHtml) {}
+
+    fn write_inner(&self, _html: impl WriteHtml) {}
+
+    fn is_unset(&self) -> bool {
+        !*self
     }
 }
 
-impl<T> IntoAttribute<FlagOrValue<T>> for bool {
-    fn into_attribute(self) -> ValueOrFlag {
-        IntoAttribute::<bool>::into_attribute(self)
+impl<T> ToAttribute<FlagOrValue<T>> for bool {
+    fn write(&self, _html: impl WriteHtml) {}
+
+    fn write_inner(&self, _html: impl WriteHtml) {}
+
+    fn is_unset(&self) -> bool {
+        !*self
     }
 }
 
-impl IntoAttribute<Any> for bool {
-    fn into_attribute(self) -> ValueOrFlag {
-        IntoAttribute::<bool>::into_attribute(self)
+impl ToAttribute<Any> for bool {
+    fn write(&self, _html: impl WriteHtml) {}
+
+    fn write_inner(&self, _html: impl WriteHtml) {}
+
+    fn is_unset(&self) -> bool {
+        !*self
     }
 }
 
-/// An attribute that accepts the datetime according to [`<time>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/time#valid_datetime_values).
+/// An attribute that accepts the date time according to [`<time>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/time#valid_datetime_values).
 ///
 /// The most important implementers are the [`chrono`](::chrono) types as well
 /// as the tuples for [`Year`], [`Week`] and [`Day`].
 pub trait TimeDateTime {
     /// Converts into value.
-    fn into_attribute(self) -> ValueOrFlag;
+    fn write(&self, html: impl WriteHtml);
+
+    fn is_unset(&self) -> bool {
+        false
+    }
 }
 
 /// Year in a `<time datetime={}>`.
@@ -173,81 +195,93 @@ mod chrono {
         TimeZone, Utc,
     };
 
-    use super::{Day, IntoAttribute, TimeDateTime, ValueOrFlag, Week, Year};
+    use super::{Day, TimeDateTime, ToAttribute, Week, WriteHtml, Year};
 
-    impl<Tz: TimeZone> IntoAttribute<super::DateTime> for DateTime<Tz> {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(self.to_rfc3339())
+    impl<Tz: TimeZone> ToAttribute<super::DateTime> for DateTime<Tz> {
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(self.to_rfc3339());
+        }
+
+        fn write_inner(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_inner_unchecked(self.to_rfc3339());
         }
     }
 
     impl TimeDateTime for (Year, Month) {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(format!("{}-{:02}", self.0, self.1.number_from_month()))
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(format_args!(
+                "{}-{:02}",
+                self.0,
+                self.1.number_from_month()
+            ));
         }
     }
 
     impl TimeDateTime for NaiveDate {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(self.format("%Y-%m-%d").to_string())
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(self.format("%Y-%m-%d"));
         }
     }
 
     impl TimeDateTime for (Month, Day) {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(format!("{:02}-{}", self.0.number_from_month(), self.1))
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(format_args!(
+                "{:02}-{}",
+                self.0.number_from_month(),
+                self.1
+            ));
         }
     }
 
     impl TimeDateTime for NaiveTime {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(self.format("%H:%M:%S.3f").to_string())
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(self.format("%H:%M:%S.3f").to_string());
         }
     }
     impl TimeDateTime for NaiveDateTime {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(self.format("%Y-%m-%d %H:%M:%S.3f").to_string())
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(self.format("%Y-%m-%d %H:%M:%S.3f").to_string());
         }
     }
 
     impl TimeDateTime for Utc {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value("Z".into())
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked("Z");
         }
     }
 
     impl TimeDateTime for Local {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(Self::now().format("%z").to_string())
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(Self::now().format("%z"));
         }
     }
     impl TimeDateTime for FixedOffset {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(self.to_string())
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(self.to_string());
         }
     }
 
     impl<Tz: TimeZone> TimeDateTime for DateTime<Tz> {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(self.to_rfc3339())
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(self.to_rfc3339());
         }
     }
 
     impl TimeDateTime for (Year, Week) {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(format!("{}-{}", self.0, self.1))
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(format_args!("{}-{}", self.0, self.1));
         }
     }
 
     impl TimeDateTime for Year {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(format!("{:04}", self.0))
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(format_args!("{:04}", self.0));
         }
     }
 
     impl TimeDateTime for Duration {
-        fn into_attribute(self) -> ValueOrFlag {
-            ValueOrFlag::Value(self.to_string())
+        fn write(&self, mut html: impl WriteHtml) {
+            html.write_attr_value_unchecked(self);
         }
     }
 }

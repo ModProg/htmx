@@ -1,4 +1,6 @@
-#![warn(clippy::pedantic, missing_docs)]
+#![warn(clippy::pedantic/* TODO , missing_docs */)]
+// TODO
+#![allow(clippy::missing_panics_doc)]
 #![allow(clippy::wildcard_imports)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 //! Library for doing server side rendering of HTML using a macro.
@@ -84,15 +86,15 @@
 extern crate self as htmx;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::fmt;
 use std::fmt::Write;
+use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
 
-use attributes::Any;
-use attributes::IntoAttribute;
-use attributes::ValueOrFlag;
-use derive_more::Display;
+use attributes::{Any, ToAttribute};
+use derive_more::{DerefMut, Display};
+use forr::forr;
 use html_escape::encode_double_quoted_attribute;
-use native::style;
 use serde::Serialize;
 
 pub mod attributes;
@@ -102,13 +104,9 @@ pub use utils::*;
 
 #[cfg(feature = "actix-web")]
 mod actix;
-#[cfg(feature = "actix-web")]
-pub use actix::*;
 
 #[cfg(feature = "axum")]
 mod axum;
-#[cfg(feature = "axum")]
-pub use axum::*;
 
 #[doc(hidden)]
 pub mod __private {
@@ -230,7 +228,6 @@ pub use htmx_macros::component;
 /// # );
 /// ```
 pub use htmx_macros::html;
-
 // TODO docs
 pub use htmx_macros::rtml;
 
@@ -275,10 +272,33 @@ impl<T: Serialize> ToJs for T {
 #[must_use]
 pub struct Html(String);
 
+impl WriteHtml for Html {
+    fn write_str(&mut self, s: &str) {
+        self.0.push_str(s);
+    }
+
+    fn write_char(&mut self, c: char) {
+        self.0.push(c);
+    }
+
+    fn write_fmt(&mut self, a: fmt::Arguments) {
+        self.0.write_fmt(a).unwrap();
+    }
+}
+
 impl Html {
     /// Creates a piece of HTML.
     pub fn new() -> Self {
         Self(DOCTYPE.into())
+    }
+
+    pub fn child_expr(mut self, child: impl ToHtml) -> Self {
+        child.to_html(&mut self);
+        self
+    }
+
+    pub fn child<C>(self, child: impl FnOnce(Self) -> C) -> C {
+        child(self)
     }
 }
 
@@ -288,150 +308,79 @@ impl Default for Html {
     }
 }
 
-impl ToHtml for Html {
-    fn write_to_html(&self, html: &mut Html) {
-        html.0.write_str(&self.0[DOCTYPE.len()..]).unwrap();
+impl<T: WriteHtml + ?Sized> WriteHtml for &mut T {
+    fn write_str(&mut self, s: &str) {
+        T::write_str(self, s);
     }
 
-    fn to_html(&self) -> Html {
-        self.clone()
+    fn write_char(&mut self, c: char) {
+        T::write_char(self, c);
     }
 
-    fn into_html(self) -> Html
-    where
-        Self: Sized,
-    {
-        self
+    fn write_fmt(&mut self, a: fmt::Arguments) {
+        T::write_fmt(self, a);
     }
 }
 
-impl<T: ToHtml + ?Sized> ToHtml for &T {
-    fn write_to_html(&self, out: &mut Html) {
-        (*self).write_to_html(out);
+pub use htmx_macros::WriteHtml;
+pub trait WriteHtml {
+    fn write_str(&mut self, s: &str);
+
+    fn write_char(&mut self, c: char);
+
+    fn write_quote(&mut self) {
+        self.write_char('"');
     }
 
-    fn to_html(&self) -> Html {
-        (*self).to_html()
+    fn write_gt(&mut self) {
+        self.write_char('>');
     }
+
+    fn write_open_tag_unchecked(&mut self, name: impl Display) {
+        debug_assert!(name.to_string().to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
+         "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
+        );
+        write!(self, "<{name}");
+    }
+
+    fn write_close_tag_unchecked(&mut self, name: impl Display) {
+        debug_assert!(name.to_string().to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
+         "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
+        );
+        write!(self, "</{name}>");
+    }
+
+    fn write_attr_value_unchecked(&mut self, value: impl Display) {
+        write!(self, "=\"{value}\"");
+    }
+
+    fn write_attr_value_inner_unchecked(&mut self, value: impl Display) {
+        write!(self, "{value}");
+    }
+
+    fn write_attr_value_encoded(&mut self, value: impl Display) {
+        self.write_attr_value_unchecked(encode_double_quoted_attribute(&value.to_string()));
+    }
+
+    fn write_attr_value_inner_encoded(&mut self, value: impl Display) {
+        self.write_attr_value_inner_unchecked(encode_double_quoted_attribute(&value.to_string()));
+    }
+
+    fn write_fmt(&mut self, a: fmt::Arguments);
 }
 
-/// Converts to [`Html`], either by appending to existing [`Html`] or by
-/// creating a new one.
-pub trait ToHtml {
-    /// Appends to existing [`Html`].
-    ///
-    /// Implementers should only implement this method.
-    fn write_to_html(&self, html: &mut Html);
-
-    /// Converts to [`Html`].
-    fn to_html(&self) -> Html {
-        let mut html = Html::default();
-        self.write_to_html(&mut html);
-        html
+impl<T: WriteHtml> WriteHtml for ManuallyDrop<T> {
+    fn write_str(&mut self, s: &str) {
+        self.deref_mut().write_str(s);
     }
 
-    /// Converts to [`Html`].
-    fn into_html(self) -> Html
-    where
-        Self: Sized,
-    {
-        self.to_html()
-    }
-}
-
-impl<T: ToHtml> ToHtml for Option<T> {
-    fn write_to_html(&self, html: &mut Html) {
-        if let Some(t) = self {
-            t.write_to_html(html);
-        }
-    }
-}
-
-/// ```
-/// use htmx::ToHtml;
-/// vec!["1", "2"].to_html();
-/// ```
-impl<T: ToHtml> ToHtml for [T] {
-    fn write_to_html(&self, html: &mut Html) {
-        for e in self {
-            e.write_to_html(html);
-        }
-    }
-}
-
-impl<T: ToHtml, const N: usize> ToHtml for [T; N] {
-    fn write_to_html(&self, html: &mut Html) {
-        self.as_slice().write_to_html(html);
-    }
-}
-
-impl<T: ToHtml> ToHtml for Vec<T> {
-    fn write_to_html(&self, html: &mut Html) {
-        self.as_slice().write_to_html(html);
-    }
-}
-
-/// Canonical type to accept children in component.
-///
-/// ```
-/// # use htmx::{html, Html, component, Children};
-///
-/// #[component]
-/// fn Component(attr: String, children: Children) -> Html {
-///     html! {
-///         <a href = attr>
-///             {children}
-///         </a>
-///     }
-/// }
-///
-/// html! {
-///     <Component attr = "https://example.com">
-///         "Some content"
-///         "and some more"
-///     </Component>
-/// };
-/// ```
-#[derive(Default)]
-#[must_use]
-pub struct Children(Html);
-
-impl Children {
-    /// Creates empty [`Children`].
-    pub fn new() -> Self {
-        Self::default()
+    fn write_char(&mut self, c: char) {
+        self.deref_mut().write_char(c);
     }
 
-    /// Adds new children.
-    pub fn push(&mut self, child: impl ToHtml) {
-        child.write_to_html(&mut self.0);
+    fn write_fmt(&mut self, a: fmt::Arguments) {
+        self.deref_mut().write_fmt(a);
     }
-}
-
-impl ToHtml for Children {
-    fn write_to_html(&self, html: &mut Html) {
-        self.0.write_to_html(html);
-    }
-
-    fn to_html(&self) -> Html {
-        self.0.clone()
-    }
-
-    fn into_html(self) -> Html
-    where
-        Self: Sized,
-    {
-        self.0
-    }
-}
-
-#[test]
-fn children_push() {
-    let mut children = Children::default();
-    children.push("hello");
-    children.push(["hello"]);
-    children.push(vec!["hello"]);
-    children.push(["hello"].as_slice());
 }
 
 /// Allows creating an element with arbitrary tag name and attributes.
@@ -441,23 +390,23 @@ fn children_push() {
 /// The [`html!`] macro uses them for all tags that contain `-` making it
 /// possible to use web-components.
 #[must_use]
-pub struct CustomElement {
-    name: Cow<'static, str>,
-    attributes: HashMap<Cow<'static, str>, ValueOrFlag>,
-    inner: Html,
+pub struct CustomElement<Html: WriteHtml, S: ElementState> {
+    html: ManuallyDrop<Html>,
+    name: ManuallyDrop<Cow<'static, str>>,
+    state: PhantomData<S>,
 }
 
-impl CustomElement {
+impl<Html: WriteHtml> CustomElement<Html, Tag> {
     /// Creates a new HTML element with the specified `name`.
     /// # Panics
     /// Panics on [invalid element names](https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname).
     /// Only the character classes are enforced, not the existence of a `-`.
-    pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new(html: Html, name: impl Into<Cow<'static, str>>) -> Self {
         let name = name.into();
         assert!(name.to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
          "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
         );
-        Self::new_unchecked(name)
+        Self::new_unchecked(html, name)
     }
 
     /// Creates a new HTML element with the specified `name`.
@@ -466,34 +415,29 @@ impl CustomElement {
     /// only in debug builds, failing to ensure valid keys can lead to broken
     /// HTML output. Only the character classes are enforced, not the
     /// existence of a `-`.
-    pub fn new_unchecked(name: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new_unchecked(mut html: Html, name: impl Into<Cow<'static, str>>) -> Self {
         let name = name.into();
         debug_assert!(name.to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
          "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
         );
+        write!(html, "<{name}");
         Self {
-            name,
-            attributes: HashMap::default(),
-            inner: Html::default(),
+            html: ManuallyDrop::new(html),
+            name: ManuallyDrop::new(name),
+            state: PhantomData,
         }
     }
 
     /// Sets the attribute `key`, this does not do any type checking and allows
-    /// [`AnyAttributeValue`].
+    /// [`IntoAttribute<Any>`].
     ///
     /// # Panics
     /// Panics on [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0).
-    pub fn custom_attr(
-        mut self,
-        key: impl Into<Cow<'static, str>>,
-        value: impl IntoAttribute<Any>,
-    ) -> Self {
-        let key = key.into();
-        assert!(!key.chars().any(|c| c.is_whitespace()
+    pub fn custom_attr(&mut self, key: impl Display, value: impl ToAttribute<Any>) {
+        assert!(!key.to_string().chars().any(|c| c.is_whitespace()
             || c.is_control()
             || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-        self.attributes.insert(key, value.into_attribute());
-        self
+        self.custom_attr_unchecked(key, value);
     }
 
     /// Sets the attribute `key`, this does not do any type checking and allows
@@ -501,65 +445,105 @@ impl CustomElement {
     ///
     /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
     pub fn custom_attr_unchecked(
-        mut self,
-        key: impl Into<Cow<'static, str>>,
-        value: impl IntoAttribute<Any>,
-    ) -> Self {
-        let key = key.into();
-        debug_assert!(!key.chars().any(|c| c.is_whitespace()
+        &mut self,
+        key: impl Display,
+        value: impl ToAttribute<Any>,
+    ) {
+        debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
             || c.is_control()
             || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-        self.attributes.insert(key, value.into_attribute());
-        self
+        write!(self.html, " {key}");
+        value.write(&mut self.html);
     }
 
-    /// Adds child element.
-    pub fn child(mut self, child: impl ToHtml) -> Self {
-        child.write_to_html(&mut self.inner);
-        self
+    pub fn custom_attr_composed(self, key: impl Display) -> CustomElement<Html, CustomAttr> {
+        assert!(!key.to_string().chars().any(|c| c.is_whitespace()
+            || c.is_control()
+            || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+        self.custom_attr_composed_unchecked(key)
     }
 
-    #[doc(hidden)]
-    pub fn build(self) -> Self {
-        self
+    pub fn custom_attr_composed_unchecked(
+        mut self,
+        key: impl Display,
+    ) -> CustomElement<Html, CustomAttr> {
+        debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
+            || c.is_control()
+            || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+        write!(self.html, " {key}=\"");
+        self.change_state()
+    }
+
+    pub fn body(mut self) -> CustomElement<Html, Body> {
+        self.html.write_gt();
+        self.change_state()
     }
 }
 
-impl ToHtml for CustomElement {
-    fn write_to_html(&self, out: &mut Html) {
-        write!(out.0, "<{}", self.name).unwrap();
-        #[cfg(feature = "sorted_attributes")]
-        let attributes = {
-            let mut attributes: Vec<_> = self.attributes.iter().collect();
-            attributes.sort_by_key(|e| e.0);
-            attributes
-        };
-        #[cfg(not(feature = "sorted_attributes"))]
-        let attributes = &self.attributes;
-        for (key, value) in attributes {
-            //
-            debug_assert!(
-                !key.chars().any(|c| c.is_whitespace()
-                    || c.is_control()
-                    || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')),
-                "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0"
-            );
-            match value {
-                ValueOrFlag::Value(value) => {
-                    write!(
-                        out.0,
-                        " {key}=\"{}\"",
-                        encode_double_quoted_attribute(value)
-                    )
-                    .unwrap();
-                }
-                ValueOrFlag::Flag => write!(out.0, " {key}").unwrap(),
-                ValueOrFlag::Unset => continue,
-            }
+impl<Html: WriteHtml> WriteHtml for CustomElement<Html, Body> {
+    fn write_str(&mut self, s: &str) {
+        self.html.write_str(s);
+    }
+
+    fn write_char(&mut self, c: char) {
+        self.html.write_char(c);
+    }
+
+    fn write_fmt(&mut self, a: std::fmt::Arguments) {
+        self.html.write_fmt(a);
+    }
+}
+
+impl<Html: WriteHtml> CustomElement<Html, Body> {
+    pub fn child_expr(mut self, child: impl ToHtml) -> Self {
+        child.to_html(&mut self);
+        self
+    }
+
+    pub fn child<C>(self, child: impl FnOnce(Self) -> C) -> C {
+        child(self)
+    }
+}
+
+impl<Html: WriteHtml, S: ElementState> CustomElement<Html, S> {
+    fn change_state<New: ElementState>(mut self) -> CustomElement<Html, New> {
+        let html = unsafe { ManuallyDrop::take(&mut self.html) };
+        let name = unsafe { ManuallyDrop::take(&mut self.name) };
+        std::mem::forget(self);
+        CustomElement {
+            html: ManuallyDrop::new(html),
+            name: ManuallyDrop::new(name),
+            state: PhantomData,
         }
-        write!(out.0, ">").unwrap();
-        self.inner.write_to_html(out);
-        write!(out.0, "</{}>", self.name).unwrap();
+    }
+
+    pub fn close(mut self) -> Html {
+        S::close_tag(&mut self.html);
+        self.html.write_close_tag_unchecked(self.name.as_ref());
+        let html = unsafe { ManuallyDrop::take(&mut self.html) };
+        std::mem::forget(self);
+        html
+    }
+}
+
+impl<Html: WriteHtml, S: ElementState> Drop for CustomElement<Html, S> {
+    fn drop(&mut self) {
+        S::close_tag(&mut self.html);
+        self.html.write_close_tag_unchecked(self.name.as_ref());
+    }
+}
+
+impl<Html: WriteHtml> CustomElement<Html, CustomAttr> {
+    pub fn attr_value(mut self, value: impl ToAttribute<Any>) -> Self {
+        if !value.is_unset() {
+            value.write_inner(&mut self.html);
+        }
+        self
+    }
+
+    pub fn close_attr(mut self) -> CustomElement<Html, Tag> {
+        self.html.write_quote();
+        self.change_state()
     }
 }
 
@@ -583,20 +567,27 @@ impl<'a> RawHtml<'a> {
     }
 }
 
+pub trait ToHtml {
+    fn to_html(&self, html: impl WriteHtml);
+}
+
+impl<T: ToHtml> ToHtml for &T {
+    fn to_html(&self, html: impl WriteHtml) {
+        T::to_html(self, html);
+    }
+}
+
+impl<T: ToHtml> ToHtml for Option<T> {
+    fn to_html(&self, html: impl WriteHtml) {
+        if let Some(it) = self {
+            it.to_html(html);
+        }
+    }
+}
+
 impl ToHtml for RawHtml<'_> {
-    fn write_to_html(&self, html: &mut Html) {
-        html.0.push_str(&self.0);
-    }
-
-    fn to_html(&self) -> Html {
-        Html(self.0.to_string())
-    }
-
-    fn into_html(self) -> Html
-    where
-        Self: Sized,
-    {
-        Html(self.0.into())
+    fn to_html(&self, mut html: impl WriteHtml) {
+        html.write_str(&self.0);
     }
 }
 
@@ -604,7 +595,37 @@ impl ToHtml for RawHtml<'_> {
 pub struct Css<'a>(pub Cow<'a, str>);
 
 impl ToHtml for Css<'_> {
-    fn write_to_html(&self, html: &mut Html) {
-        style::builder().child(self.0.as_ref()).write_to_html(html);
+    fn to_html(&self, _html: impl WriteHtml) {
+        todo!()
+        // TODO: style::new(html).child(self.0.as_ref()).close();
     }
+}
+
+pub struct Tag;
+
+impl ElementState for Tag {
+    fn close_tag(mut html: impl WriteHtml) {
+        html.write_gt();
+    }
+}
+
+forr! { $ty:ty in [CustomAttr, StyleAttr, ClassesAttr] $*
+    pub struct $ty;
+
+    impl ElementState for $ty {
+        fn close_tag(mut html: impl WriteHtml) {
+            html.write_quote();
+            html.write_gt();
+        }
+    }
+}
+
+pub struct Body;
+
+impl ElementState for Body {
+    fn close_tag(_: impl WriteHtml) {}
+}
+
+pub trait ElementState {
+    fn close_tag(html: impl WriteHtml);
 }
