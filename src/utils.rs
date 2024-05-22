@@ -1,5 +1,4 @@
-use crate::native::ToScript;
-use crate::{ElementState, ToHtml, WriteHtml};
+use crate::{IntoHtml, ToHtml, ToScript, WriteHtml};
 
 /// Embed [HTMX script](https://htmx.org/).
 ///
@@ -102,25 +101,113 @@ impl<T, F: Into<T>, I: IntoIterator<Item = F>> From<I> for AttrVec<T> {
 //     )
 // }
 
-pub struct HtmlPage<Html: ::htmx::WriteHtml, S: ::htmx::ElementState> {
-    html: ::std::mem::ManuallyDrop<Html>,
-    state: ::std::marker::PhantomData<S>,
-    // state
+// Components need to follow the following contract for <Html: WriteHtml>:
+// - new(html: Html) -> Self;
+// - close(self); Closes element without body
+// - body(self, impl FnOnce(Html)); Closes element with body, only required when
+//   accepting children
+
+pub struct HtmlPage<Html: ::htmx::WriteHtml, Mobile, Title, StyleSheets, Scripts, Lang> {
+    html: Html,
+    mobile: Mobile,
+    title: Title,
+    style_sheets: StyleSheets,
+    scripts: Scripts,
+    lang: Lang,
 }
 
 const _: () = {
-    use ::htmx::WriteHtml;
-    impl<Html: ::htmx::WriteHtml> HtmlPage<Html, ::htmx::Tag> {
+    use ::htmx::WriteHtml as _;
+
+    struct Unset;
+    struct Set<T>(T);
+
+    impl<Html: ::htmx::WriteHtml> HtmlPage<Html, Unset, Unset, Unset, Unset, Unset> {
         pub fn new(html: Html) -> Self {
             Self {
-                html: ::std::mem::ManuallyDrop::new(html),
-                state: ::std::marker::PhantomData,
+                html,
+                mobile: Unset,
+                title: Unset,
+                style_sheets: Unset,
+                scripts: Unset,
+                lang: Unset,
             }
         }
+    }
 
-        pub fn lang(&mut self, value: impl ::htmx::attributes::ToAttribute<String>) {
-            self.html.write_str(" lang");
-            value.write(&mut self.html);
+    impl<Html: ::htmx::WriteHtml, Title, StyleSheets, Scripts, Lang>
+        HtmlPage<Html, Unset, Title, StyleSheets, Scripts, Lang>
+    {
+        pub fn mobile(
+            self,
+            mobile: bool,
+        ) -> HtmlPage<Html, Set<bool>, Title, StyleSheets, Scripts, Lang> {
+            let Self {
+                html,
+                mobile: _,
+                title,
+                style_sheets,
+                scripts,
+                lang,
+            } = self;
+            HtmlPage {
+                html,
+                mobile: Set(mobile),
+                title,
+                style_sheets,
+                scripts,
+                lang,
+            }
+        }
+    }
+
+    #[allow(non_camel_case_types)]
+    struct mobile_was_already_set;
+
+    impl<Html: ::htmx::WriteHtml, Mobile, Title, StyleSheets, Scripts, Lang>
+        HtmlPage<Html, Set<Mobile>, Title, StyleSheets, Scripts, Lang>
+    {
+        #[deprecated = "mobile was already set"]
+        pub fn mobile(
+            self,
+            mobile: bool,
+            _: mobile_was_already_set,
+        ) -> HtmlPage<Html, Set<bool>, Title, StyleSheets, Scripts, Lang> {
+            let Self {
+                html,
+                mobile: _,
+                title,
+                style_sheets,
+                scripts,
+                lang,
+            } = self;
+            HtmlPage {
+                html,
+                mobile: Set(mobile),
+                title,
+                style_sheets,
+                scripts,
+                lang,
+            }
+        }
+    }
+
+    impl<Html: ::htmx::WriteHtml, Title, StyleSheets, Scripts, Lang>
+        HtmlPage<Html, Set<bool>, Title, StyleSheets, Scripts, Lang>
+    {
+        pub fn body(self, body: impl ::htmx::IntoHtml<Html>) {
+            let Self {
+                html,
+                mobile: Set(mobile),
+                title,
+                style_sheets,
+                scripts,
+                lang,
+            } = self;
+        }
+
+        pub fn close(self) {
+            self.body(::htmx::Fragment::EMPTY)
         }
     }
 };

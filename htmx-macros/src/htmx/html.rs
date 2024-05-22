@@ -87,21 +87,21 @@ pub fn expand_node(node: Node) -> Result {
                 };
                 let script = script.into_token_stream();
                 if let Ok(script) = parse2::<LitStr>(script.clone()) {
-                    quote!(__html.child_expr(#script);)
+                    quote!(::htmx::ToScript::to_script(&#script, &mut __html);)
                 } else if let Ok(block) =
                     parse2::<Recoverable<NodeBlock>>(script.clone()).map(Recoverable::inner)
                 {
-                    quote!(__html.child_expr({#[allow(unused_braces)] #block});)
+                    quote!(::htmx::ToScript::to_script(&{#[allow(unused_braces)] #block}, &mut __html);)
                 } else {
                     let script: Script = parse2(script)?;
                     let script = script.to_java_script();
-                    quote!(__html.child(#script);)
+                    quote!(::htmx::ToScript::to_script(#script, &mut __html);)
                 }
             } else {
                 expand_nodes(children)?
             };
-            let body = (!children.is_empty()).then(|| quote!(let mut __html = __html.body();));
-            let main = quote!({let mut __html = #name #(__html.#attributes;)* #body; #children});
+            let body = (!children.is_empty()).then(|| quote!(let mut __html = __html.body(|mut __html| {#children});));
+            let main = quote!({let mut __html = #name #(.#attributes)*; #body;});
 
             match close_tag {
                 Some(CloseTag {
@@ -139,11 +139,11 @@ pub fn ensure_tag_name(name: String, span: impl ToTokens) -> Result<String, Erro
 
 fn name_to_struct(name: NodeName) -> Result<(TokenStream, bool)> {
     match name {
-        NodeName::Path(path) => Ok((quote!(#path::new(&mut __html);), false)),
+        NodeName::Path(path) => Ok((quote!(#path::new(&mut __html)), false)),
         name @ NodeName::Punctuated(_) => {
             let name = ensure_tag_name(name.to_string(), name)?;
             Ok((
-                quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name);),
+                quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name)),
                 true,
             ))
         }
@@ -161,12 +161,12 @@ fn name_to_struct(name: NodeName) -> Result<(TokenStream, bool)> {
             {
                 let name = ensure_tag_name(name.value(), name)?;
                 Ok((
-                    quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name);),
+                    quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name)),
                     true,
                 ))
             } else {
                 Ok((
-                    quote!(::htmx::CustomElement::new(&mut __html, #name);),
+                    quote!(::htmx::CustomElement::new(&mut __html, #name)),
                     true,
                 ))
             }

@@ -1,7 +1,6 @@
 //! Native HTML elements
 #![allow(non_camel_case_types, clippy::return_self_not_must_use)]
 
-use std::borrow::Cow;
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
@@ -9,53 +8,10 @@ use std::mem::ManuallyDrop;
 use forr::{forr, iff};
 
 use crate::attributes::{Any, DateTime, FlagOrValue, Number, TimeDateTime, ToAttribute};
-use crate::{Body, ClassesAttr, CustomAttr, ElementState, StyleAttr, Tag, ToHtml, WriteHtml};
-
-forr! {$type:ty in [&str, String, Cow<'_, str>]$*
-    impl ToHtml for $type {
-        fn to_html(&self, mut out: impl WriteHtml) {
-            write!(out, "{}", html_escape::encode_text(&self));
-        }
-    }
-
-    impl ToScript for $type {
-        fn to_script(&self, mut out: impl WriteHtml) {
-            write!(out, "{}", html_escape::encode_script(&self));
-        }
-    }
-
-    impl ToStyle for $type {
-        fn to_style(&self, mut out: impl WriteHtml) {
-            write!(out, "{}", html_escape::encode_style(&self));
-        }
-    }
-}
-
-impl ToHtml for char {
-    fn to_html(&self, mut out: impl WriteHtml) {
-        write!(out, "{}", html_escape::encode_text(&self.to_string()));
-    }
-}
-
-pub trait ToScript {
-    fn to_script(&self, out: impl WriteHtml);
-}
-
-impl<T: ToScript> ToScript for &T {
-    fn to_script(&self, out: impl WriteHtml) {
-        T::to_script(self, out);
-    }
-}
-
-pub trait ToStyle {
-    fn to_style(&self, out: impl WriteHtml);
-}
-
-impl<T: ToStyle> ToStyle for &T {
-    fn to_style(&self, out: impl WriteHtml) {
-        T::to_style(self, out);
-    }
-}
+use crate::{
+    Body, ClassesAttr, CustomAttr, ElementState, StyleAttr, Tag, ToHtml, ToScript, ToStyle,
+    WriteHtml,
+};
 
 macro_rules! attribute {
     ($elem:ident|$name:ident<FlagOrAttributeValue>) => {
@@ -180,8 +136,9 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         }
 
         iff! {!equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
-            pub fn body(mut self) -> $type<T, Body> {
+            pub fn body(mut self, body: impl FnOnce(&mut T)) -> $type<T, Body> {
                 self.html.write_gt();
+                body(&mut self.html);
                 self.change_state()
             }
         }

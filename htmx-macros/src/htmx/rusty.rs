@@ -410,13 +410,12 @@ impl Element {
 
         let attrs = attrs.attrs.into_iter().map(Attr::expand);
 
-        let body = children.peek().is_some().then(|| quote!(let mut __html = __html.body()));
+        let body = children.peek().is_some().then(|| quote!(__html.body(|mut __html| {#(#children)*})));
 
         quote!({
             let mut __html = #name
             #(__html #attrs;)* 
             #body;
-            #(#children)*
         })
     }
 }

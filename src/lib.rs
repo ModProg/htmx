@@ -389,7 +389,6 @@ impl<T: WriteHtml> WriteHtml for ManuallyDrop<T> {
 ///
 /// The [`html!`] macro uses them for all tags that contain `-` making it
 /// possible to use web-components.
-#[must_use]
 pub struct CustomElement<Html: WriteHtml, S: ElementState> {
     html: ManuallyDrop<Html>,
     name: ManuallyDrop<Cow<'static, str>>,
@@ -444,11 +443,7 @@ impl<Html: WriteHtml> CustomElement<Html, Tag> {
     /// [`AnyAttributeValue`], without checking for invalid characters.
     ///
     /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
-    pub fn custom_attr_unchecked(
-        &mut self,
-        key: impl Display,
-        value: impl ToAttribute<Any>,
-    ) {
+    pub fn custom_attr_unchecked(&mut self, key: impl Display, value: impl ToAttribute<Any>) {
         debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
             || c.is_control()
             || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
@@ -456,52 +451,29 @@ impl<Html: WriteHtml> CustomElement<Html, Tag> {
         value.write(&mut self.html);
     }
 
-    pub fn custom_attr_composed(self, key: impl Display) -> CustomElement<Html, CustomAttr> {
-        assert!(!key.to_string().chars().any(|c| c.is_whitespace()
-            || c.is_control()
-            || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-        self.custom_attr_composed_unchecked(key)
-    }
+    // TODO, use closure like body
+    // pub fn custom_attr_composed(self, key: impl Display) -> CustomElement<Html,
+    // CustomAttr> {     assert!(!key.to_string().chars().any(|c|
+    // c.is_whitespace()         || c.is_control()
+    //         || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+    //     self.custom_attr_composed_unchecked(key)
+    // }
 
-    pub fn custom_attr_composed_unchecked(
-        mut self,
-        key: impl Display,
-    ) -> CustomElement<Html, CustomAttr> {
-        debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
-            || c.is_control()
-            || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-        write!(self.html, " {key}=\"");
-        self.change_state()
-    }
+    // pub fn custom_attr_composed_unchecked(
+    //     mut self,
+    //     key: impl Display,
+    // ) -> CustomElement<Html, CustomAttr> {
+    //     debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
+    //         || c.is_control()
+    //         || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+    //     write!(self.html, " {key}=\"");
+    //     self.change_state()
+    // }
 
-    pub fn body(mut self) -> CustomElement<Html, Body> {
+    pub fn body(mut self, body: impl FnOnce(&mut Html)) {
         self.html.write_gt();
-        self.change_state()
-    }
-}
-
-impl<Html: WriteHtml> WriteHtml for CustomElement<Html, Body> {
-    fn write_str(&mut self, s: &str) {
-        self.html.write_str(s);
-    }
-
-    fn write_char(&mut self, c: char) {
-        self.html.write_char(c);
-    }
-
-    fn write_fmt(&mut self, a: std::fmt::Arguments) {
-        self.html.write_fmt(a);
-    }
-}
-
-impl<Html: WriteHtml> CustomElement<Html, Body> {
-    pub fn child_expr(mut self, child: impl ToHtml) -> Self {
-        child.to_html(&mut self);
-        self
-    }
-
-    pub fn child<C>(self, child: impl FnOnce(Self) -> C) -> C {
-        child(self)
+        body(&mut self.html);
+        self.change_state::<Body>();
     }
 }
 
@@ -516,34 +488,12 @@ impl<Html: WriteHtml, S: ElementState> CustomElement<Html, S> {
             state: PhantomData,
         }
     }
-
-    pub fn close(mut self) -> Html {
-        S::close_tag(&mut self.html);
-        self.html.write_close_tag_unchecked(self.name.as_ref());
-        let html = unsafe { ManuallyDrop::take(&mut self.html) };
-        std::mem::forget(self);
-        html
-    }
 }
 
 impl<Html: WriteHtml, S: ElementState> Drop for CustomElement<Html, S> {
     fn drop(&mut self) {
         S::close_tag(&mut self.html);
         self.html.write_close_tag_unchecked(self.name.as_ref());
-    }
-}
-
-impl<Html: WriteHtml> CustomElement<Html, CustomAttr> {
-    pub fn attr_value(mut self, value: impl ToAttribute<Any>) -> Self {
-        if !value.is_unset() {
-            value.write_inner(&mut self.html);
-        }
-        self
-    }
-
-    pub fn close_attr(mut self) -> CustomElement<Html, Tag> {
-        self.html.write_quote();
-        self.change_state()
     }
 }
 
@@ -564,6 +514,30 @@ impl<'a> RawHtml<'a> {
     /// Creates a new `RawHtml`.
     pub fn new(content: impl Into<Cow<'a, str>>) -> Self {
         Self(content.into())
+    }
+}
+
+pub struct Fragment<F>(pub F);
+
+// TODO reconsider elements implementing WriteHtml, maybe it would be better for them to implement a way to access the underlying `Html`
+impl<F> Fragment<F> {
+    #[allow(non_snake_case)]
+    pub fn EMPTY(self, html: impl WriteHtml) {}
+}
+
+impl<F: FnOnce(Html), Html: WriteHtml> IntoHtml<Html> for Fragment<F> {
+    fn into_html(self, html: Html) {
+        self.0(html);
+    }
+}
+
+pub trait IntoHtml<Html> {
+    fn into_html(self, html: Html);
+}
+
+impl<T: ToHtml, Html: WriteHtml> IntoHtml<Html> for T {
+    fn into_html(self, html: Html) {
+        self.to_html(html);
     }
 }
 
@@ -628,4 +602,50 @@ impl ElementState for Body {
 
 pub trait ElementState {
     fn close_tag(html: impl WriteHtml);
+}
+
+forr! {$type:ty in [&str, String, Cow<'_, str>]$*
+    impl ToHtml for $type {
+        fn to_html(&self, mut out: impl WriteHtml) {
+            write!(out, "{}", html_escape::encode_text(&self));
+        }
+    }
+
+    impl ToScript for $type {
+        fn to_script(&self, mut out: impl WriteHtml) {
+            write!(out, "{}", html_escape::encode_script(&self));
+        }
+    }
+
+    impl ToStyle for $type {
+        fn to_style(&self, mut out: impl WriteHtml) {
+            write!(out, "{}", html_escape::encode_style(&self));
+        }
+    }
+}
+
+impl ToHtml for char {
+    fn to_html(&self, mut out: impl WriteHtml) {
+        write!(out, "{}", html_escape::encode_text(&self.to_string()));
+    }
+}
+
+pub trait ToScript {
+    fn to_script(&self, out: impl WriteHtml);
+}
+
+impl<T: ToScript> ToScript for &T {
+    fn to_script(&self, out: impl WriteHtml) {
+        T::to_script(self, out);
+    }
+}
+
+pub trait ToStyle {
+    fn to_style(&self, out: impl WriteHtml);
+}
+
+impl<T: ToStyle> ToStyle for &T {
+    fn to_style(&self, out: impl WriteHtml) {
+        T::to_style(self, out);
+    }
 }
