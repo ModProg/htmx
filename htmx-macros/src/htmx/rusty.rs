@@ -2,6 +2,7 @@ use std::mem;
 
 use manyhow::{bail, ensure, Result};
 use proc_macro2::{TokenStream, TokenTree};
+use proc_macro_utils::TokenStream2Ext;
 use quote::{format_ident, ToTokens};
 use syn::ext::IdentExt;
 use syn::parse::discouraged::Speculative;
@@ -14,17 +15,14 @@ use syn_derive::{Parse, ToTokens};
 use super::html::ensure_tag_name;
 use crate::*;
 
-pub fn html(input: TokenStream) -> Result<proc_macro2::TokenStream, manyhow::Error> {
+pub fn rtml(input: TokenStream) -> Result<proc_macro2::TokenStream, manyhow::Error> {
     let nodes = expand_nodes(Punctuated::<Node, Token![,]>::parse_terminated.parse2(input)?);
 
     Ok(quote! {
-        #use ::htmx::{ToHtml, Html, IntoHtmlElements};
-        {
+        ::htmx::Fragment(|mut __html: &mut ::htmx::Html| {
             use ::htmx::native::*;
-            let mut __html = Html::new();
             #(#nodes)*
-            __html
-        }
+        })
     })
 }
 
@@ -63,8 +61,8 @@ impl Node {
                 quote!(::htmx::ToHtml::to_html(&#lit, &mut __html);)
             }
             Node::Block(block) => {
-                quote!(::htmx::ToHtml::to_html(&#block, &mut __html);)
-            },
+                quote!(::htmx::IntoHtml::into_html({#[allow(unused_braces)] #block}, &mut __html);)
+            }
             Node::Element(element) => element.expand(),
             Node::If(node) => node.expand(),
             Node::For(node) => node.expand(),
@@ -387,6 +385,7 @@ struct Element {
 impl Element {
     fn expand(self) -> TokenStream {
         let mut attrs = self.attrs.unwrap_or_default();
+        let mut close_arg = quote!();
         let name = match self.path {
             ElementName::String(name) => {
                 quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name);)
@@ -396,7 +395,17 @@ impl Element {
                 attrs.attrs.push(Attr::Classes(classes));
                 quote!(div::new(&mut __html))
             }
-            ElementName::Path(path) => quote!(#path::new(&mut __html);),
+            ElementName::Path(path)
+                if path
+                    .get_ident()
+                    .is_some_and(|i| !i.to_string().contains(char::is_uppercase)) =>
+            {
+                quote!(#path::new(&mut __html);)
+            }
+            ElementName::Path(path) => {
+                close_arg = quote!(&mut __html);
+                quote!(#path::new();)
+            }
         };
 
         let mut children = expand_nodes(
@@ -410,13 +419,16 @@ impl Element {
 
         let attrs = attrs.attrs.into_iter().map(Attr::expand);
 
-        let body = children.peek().is_some().then(|| quote!(__html.body(|mut __html| {#(#children)*})));
+        let body = children
+            .peek()
+            .is_some()
+            .then(|| quote!(.body(::htmx::Fragment(|mut __html: &mut ::htmx::Html| {#(#children)*}), #close_arg))).unwrap_or_else(|| quote!(.close(#close_arg)));
 
-        quote!({
-            let mut __html = #name
-            #(__html #attrs;)* 
-            #body;
-        })
+        quote!({{
+            let mut __html = #name;
+            #(let __html = __html #attrs;)*
+            __html
+        }#body;})
     }
 }
 

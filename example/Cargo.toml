@@ -11,7 +11,7 @@ repository = "https://github.com/ModProg/htmx"
 documentation = "https://docs.rs/htmx"
 
 [features]
-default = ["axum"]
+default = ["axum", "tauri", "actix"]
 axum = ["htmx/axum", "dep:tokio", "dep:axum"]
 tauri = ["dep:tauri-runtime", "dep:tauri-runtime-wry", "dep:url"]
 actix = ["htmx/actix-web", "dep:actix-web"]

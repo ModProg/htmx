@@ -8,18 +8,17 @@ use std::error::Error;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Form, Router};
-use htmx::{html, HtmxSrc};
+use htmx::{html, HtmlPage, HtmxSrc};
 
 async fn index() -> impl IntoResponse {
     html! {
-        <head>
-            <HtmxSrc/>
-        </head>
-        <h1>"Axum Demo"</h1>
-        <form hx::post="/greet" hx::swap="outerHTML">
-            <input name="name" placeholder="Name"/>
-            <button> "Greet me" </button>
-        </form>
+        <HtmlPage mobile title="Axum Demo" scripts=["htmx"]>
+            <h1>"Axum Demo"</h1>
+            <form hx::post="/greet" hx::swap="outerHTML">
+                <input name="name" placeholder="Name"/>
+                <button> "Greet me" </button>
+            </form>
+        </_>
     }
 }
 
@@ -39,6 +38,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Router::new()
                 .route("/", get(index))
                 .route("/greet", post(greet))
+                .route("/htmx", get(HtmxSrc))
                 .into_make_service(),
         )
         .await

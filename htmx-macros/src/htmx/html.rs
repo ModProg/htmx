@@ -1,29 +1,21 @@
 use htmx_script::{Script, ToJs};
-use manyhow::{ensure, ErrorMessage, Result};
+use manyhow::{ensure, Error, ErrorMessage, Result};
 use proc_macro2::TokenStream;
-use proc_macro_utils::TokenStream2Ext;
 use quote::ToTokens;
 use rstml::atoms::{CloseTag, OpenTag};
 use rstml::node::{
     AttributeValueExpr, KeyedAttribute, KeyedAttributeValue, NodeAttribute, NodeBlock, NodeElement,
-    NodeName,
+    NodeFragment, NodeName,
 };
 use rstml::recoverable::Recoverable;
 use syn::spanned::Spanned;
 use syn::{parse2, Expr, ExprLit, ExprPath, Lit, LitStr, Stmt};
 
 use super::special_components::{Node, Special};
+use super::try_into_iter;
 use crate::*;
 
 pub fn html(input: TokenStream) -> Result {
-    let mut parser = input.clone().parser();
-    let (input, expr) =
-        if let ( Some(expr), Some(_)) = (parser.next_expression(), parser.next_tt_fat_arrow()) {
-            (parser.into_token_stream(), quote!(&mut #expr))
-        } else {
-            (input, quote!(::htmx::Html::new()))
-        };
-
     let nodes = rstml::Parser::new(
         rstml::ParserConfig::new()
             .recover_block(true)
@@ -32,19 +24,161 @@ pub fn html(input: TokenStream) -> Result {
             .raw_text_elements(["script"].into()),
     )
     // TODO parse_recoverable
-    .parse_simple(input)?
-    .into_iter()
-    .map(expand_node)
-    .collect::<Result>()?;
+    .parse_simple(input)?;
 
-    Ok(quote! {
-        {
-            use ::htmx::native::*;
-            let mut __html = #expr;
-            #nodes
-            __html
+    super::expand_nodes(nodes)
+}
+
+impl TryFrom<Node> for super::Node {
+    type Error = Error;
+
+    fn try_from(value: Node) -> std::result::Result<Self, Self::Error> {
+        match value {
+            Node::Comment(comment) => bail!(comment, "html comments are not supported"),
+            Node::Doctype(doc_type) => bail!(doc_type, "doc typ is set automatically"),
+            Node::Fragment(NodeFragment { tag_open, .. }) => bail!(tag_open, "missing tag name"),
+            Node::Element(element) => Ok(super::Node::Element(element.try_into()?)),
+            Node::Block(block) => Ok(super::Node::Block(block.into_token_stream())),
+            Node::Text(text) => Ok(super::Node::String(text.value)),
+            Node::RawText(text) => bail!(
+                text.into_token_stream().into_iter().next(),
+                "expected `<`, `{{` or `\"`"
+            ),
+            Node::Custom(special) => special.try_into(),
         }
-    })
+    }
+}
+
+impl TryFrom<NodeElement<Special>> for super::Element {
+    type Error = Error;
+
+    fn try_from(value: NodeElement<Special>) -> std::result::Result<Self, Self::Error> {
+        let NodeElement {
+            open_tag,
+            children,
+            close_tag,
+        } = value;
+        Ok(super::Element {
+            close_tag: close_tag.and_then(|ct| match ct.name {
+                NodeName::Path(p) if !ct.name.is_wildcard() => Some(p.into_token_stream()),
+                _ => None,
+            }),
+            attributes: try_into_iter(open_tag.attributes)?,
+            body: if !children.is_empty()
+                && matches!(&open_tag.name, NodeName::Path(p) if p.path.is_ident("script"))
+            {
+                let Some(Node::RawText(script)) = children.first() else {
+                    unreachable!("script always raw text")
+                };
+                let script = script.into_token_stream();
+                if let Ok(script) = parse2::<LitStr>(script.clone()) {
+                    super::ElementBody::Script(super::ScriptBody::String(script))
+                } else if let Ok(block) =
+                    parse2::<Recoverable<NodeBlock>>(script.clone()).map(Recoverable::inner)
+                {
+                    super::ElementBody::Script(super::ScriptBody::Expr(block.into_token_stream()))
+                } else {
+                    let script: Script = parse2(script)?;
+                    let script = script.to_java_script();
+                    // quote!(__html.body(#script);)
+                    super::ElementBody::Script(super::ScriptBody::Expr(script.into_token_stream()))
+                }
+            } else {
+                super::ElementBody::Children(try_into_iter(children)?)
+            },
+            open_tag: open_tag.name.try_into()?,
+        })
+    }
+}
+
+fn string_from_block(block: &syn::Block) -> Option<&LitStr> {
+    if let [
+        Stmt::Expr(
+            Expr::Lit(ExprLit {
+                lit: Lit::Str(lit), ..
+            }),
+            None,
+        ),
+    ] = &block.stmts[..]
+    {
+        Some(lit)
+    } else {
+        None
+    }
+}
+
+impl TryFrom<NodeName> for super::OpenTag {
+    type Error = Error;
+
+    fn try_from(value: NodeName) -> std::result::Result<Self, Self::Error> {
+        Ok(match value {
+            NodeName::Path(path) => super::OpenTag::Path(path.into_token_stream()),
+            name @ NodeName::Punctuated(_) => {
+                super::OpenTag::from_str(name.to_string(), name.span())?
+            }
+            NodeName::Block(name) => {
+                if let Some(name) = string_from_block(&name) {
+                    super::OpenTag::from_str(name.value(), name.span())?
+                } else {
+                    super::OpenTag::Expr(name.into_token_stream())
+                }
+            }
+        })
+    }
+}
+
+impl TryFrom<NodeAttribute> for super::Attribute {
+    type Error = Error;
+
+    fn try_from(value: NodeAttribute) -> std::result::Result<Self, Self::Error> {
+        Ok(match value {
+            NodeAttribute::Block(name) => super::Attribute {
+                key: if let Some(name) = name.try_block().and_then(string_from_block) {
+                    super::AttributeKey::from_str(name.value(), name.span())?
+                } else {
+                    super::AttributeKey::Expr(name.into_token_stream())
+                },
+                value: None,
+            },
+            NodeAttribute::Attribute(attribute) => super::Attribute {
+                value: attribute.value().map(ToTokens::into_token_stream),
+                key: attribute.key.try_into()?,
+            },
+        })
+    }
+}
+
+impl TryFrom<NodeName> for super::AttributeKey {
+    type Error = Error;
+
+    fn try_from(value: NodeName) -> std::result::Result<Self, Self::Error> {
+        Ok(match value {
+            NodeName::Path(p) if p.path.get_ident().is_some() => {
+                super::AttributeKey::Fn(p.into_token_stream())
+            }
+            NodeName::Path(p) if p.path.segments.first().is_some_and(|hx| hx.ident == "hx") => {
+                let sident = p
+                    .path
+                    .segments
+                    .iter()
+                    .map(|i| i.ident.to_string().replace('_', "-"))
+                    // hx::swap::oob
+                    .collect::<Vec<_>>()
+                    .join("-");
+                super::AttributeKey::from_str(sident, p.span())?
+            }
+            key @ (NodeName::Punctuated(_) | NodeName::Path(_)) => {
+                super::AttributeKey::from_str(key.to_string(), key.span())?
+            }
+            NodeName::Block(block) => {
+                if let Some(key) = string_from_block(&block) {
+                    super::AttributeKey::from_str(key.value(), key.span())?
+                } else {
+                    super::AttributeKey::Expr(block.into_token_stream())
+                }
+            }
+        })
+    }
 }
 
 pub fn expand_node(node: Node) -> Result {
@@ -61,7 +195,7 @@ pub fn expand_node(node: Node) -> Result {
             ..
         }) => {
             let script = name.to_string() == "script";
-            let (name, custom) = name_to_struct(name)?;
+            let (name, node_type) = name_to_struct(name)?;
             let attributes = attributes
                 .into_iter()
                 .map(|attribute| match attribute {
@@ -72,9 +206,11 @@ pub fn expand_node(node: Node) -> Result {
                     }) => match possible_value {
                         KeyedAttributeValue::Binding(_) => todo!("{}", line!()),
                         KeyedAttributeValue::Value(AttributeValueExpr { value, .. }) => {
-                            attribute_key_to_fn(key, value, custom)
+                            attribute_key_to_fn(key, value, matches!(node_type, NodeType::Custom))
                         }
-                        KeyedAttributeValue::None => attribute_key_to_fn(key, true, custom),
+                        KeyedAttributeValue::None => {
+                            attribute_key_to_fn(key, true, matches!(node_type, NodeType::Custom))
+                        }
                     },
                 })
                 .collect::<Result<Vec<_>>>()?;
@@ -87,21 +223,33 @@ pub fn expand_node(node: Node) -> Result {
                 };
                 let script = script.into_token_stream();
                 if let Ok(script) = parse2::<LitStr>(script.clone()) {
+                    // quote!(__html.body(#script);)
                     quote!(::htmx::ToScript::to_script(&#script, &mut __html);)
                 } else if let Ok(block) =
                     parse2::<Recoverable<NodeBlock>>(script.clone()).map(Recoverable::inner)
                 {
-                    quote!(::htmx::ToScript::to_script(&{#[allow(unused_braces)] #block}, &mut __html);)
+                    // quote!(__html.body({#[allow(unused_braces)] #block});)
+                    quote!(::htmx::ToScript::to_script(&{# [allow(unused_braces)] #block}, &mut __html);)
                 } else {
                     let script: Script = parse2(script)?;
                     let script = script.to_java_script();
-                    quote!(::htmx::ToScript::to_script(#script, &mut __html);)
+                    // quote!(__html.body(#script);)
+                    quote!(::htmx::ToScript::to_script(&#script, &mut __html);)
                 }
             } else {
                 expand_nodes(children)?
             };
-            let body = (!children.is_empty()).then(|| quote!(let mut __html = __html.body(|mut __html| {#children});));
-            let main = quote!({let mut __html = #name #(.#attributes)*; #body;});
+            let close_arg = if matches!(node_type, NodeType::Component) {
+                quote!(&mut __html)
+            } else {
+                quote!()
+            };
+            let body = if children.is_empty() {
+                quote!(.close(#close_arg))
+            } else {
+                quote!(.body(::htmx::Fragment(|mut __html: &mut ::htmx::Html| {#children}), #close_arg))
+            };
+            let main = quote!({{let mut __html = #name #(.#attributes)*; __html}#body;});
 
             match close_tag {
                 Some(CloseTag {
@@ -115,7 +263,7 @@ pub fn expand_node(node: Node) -> Result {
             }
         }
         Node::Block(_) | Node::Text(_) => {
-            quote!(::htmx::ToHtml::to_html(&{#[allow(unused_braces)] #node}, &mut __html);)
+            quote!(::htmx::IntoHtml::into_html({#[allow(unused_braces)] #node}, &mut __html);)
         }
         Node::RawText(_) => todo!("{}", line!()),
         Node::Custom(c) => c.expand_node()?,
@@ -137,14 +285,28 @@ pub fn ensure_tag_name(name: String, span: impl ToTokens) -> Result<String, Erro
     Ok(name)
 }
 
-fn name_to_struct(name: NodeName) -> Result<(TokenStream, bool)> {
+enum NodeType {
+    Native,
+    Component,
+    Custom,
+}
+
+fn name_to_struct(name: NodeName) -> Result<(TokenStream, NodeType)> {
     match name {
-        NodeName::Path(path) => Ok((quote!(#path::new(&mut __html)), false)),
+        NodeName::Path(path)
+            if path
+                .path
+                .get_ident()
+                .is_some_and(|i| !i.to_string().contains(char::is_uppercase)) =>
+        {
+            Ok((quote!(#path::new(&mut __html)), NodeType::Native))
+        }
+        NodeName::Path(path) => Ok((quote!(#path::new()), NodeType::Component)),
         name @ NodeName::Punctuated(_) => {
             let name = ensure_tag_name(name.to_string(), name)?;
             Ok((
                 quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name)),
-                true,
+                NodeType::Custom,
             ))
         }
         // This {...}
@@ -162,12 +324,12 @@ fn name_to_struct(name: NodeName) -> Result<(TokenStream, bool)> {
                 let name = ensure_tag_name(name.value(), name)?;
                 Ok((
                     quote!(::htmx::CustomElement::new_unchecked(&mut __html, #name)),
-                    true,
+                    NodeType::Custom,
                 ))
             } else {
                 Ok((
                     quote!(::htmx::CustomElement::new(&mut __html, #name)),
-                    true,
+                    NodeType::Custom,
                 ))
             }
         }

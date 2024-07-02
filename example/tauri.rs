@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::Display;
 
-use htmx::{html, Html, HtmxSrc};
+use htmx::{html, HtmxSrc};
 use tauri_runtime::http::ResponseBuilder;
 use tauri_runtime::webview::{WebviewAttributes, WindowBuilder};
 use tauri_runtime::window::PendingWindow;
@@ -16,7 +16,7 @@ use tauri_runtime::Runtime;
 use tauri_runtime_wry::Wry;
 use url::Url;
 
-fn index() -> Html {
+fn index() -> String {
     html! {
         <head><HtmxSrc/></head>
         <h1>"Tauri Demo"</h1>
@@ -25,14 +25,16 @@ fn index() -> Html {
             <button> "Greet me" </button>
         </form>
     }
+    .into_string()
 }
 
-fn greet(name: impl Display) -> Html {
+fn greet(name: impl Display) -> String {
     html! {
         "Hello "
         {format!("{name}! ")}
         <a href="/"> ":D" </a>
     }
+    .into_string()
 }
 
 fn get_param<'a>(key: &str, url: &'a Url) -> Result<Cow<'a, str>, String> {
@@ -61,7 +63,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     "/greet" => greet(get_param("name", &url)?),
                     path => return Err(format!("Unknown path `{path}`").into()),
                 }
-                .to_string()
                 .into_bytes(),
             )
             .unwrap())

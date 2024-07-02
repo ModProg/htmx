@@ -3,15 +3,11 @@
 
 use std::fmt::Display;
 use std::marker::PhantomData;
-use std::mem::ManuallyDrop;
 
 use forr::{forr, iff};
 
 use crate::attributes::{Any, DateTime, FlagOrValue, Number, TimeDateTime, ToAttribute};
-use crate::{
-    Body, ClassesAttr, CustomAttr, ElementState, StyleAttr, Tag, ToHtml, ToScript, ToStyle,
-    WriteHtml,
-};
+use crate::{ElementState, Html, IntoHtml, IntoScript, IntoStyle, Tag, Fragment};
 
 macro_rules! attribute {
     ($elem:ident|$name:ident<FlagOrAttributeValue>) => {
@@ -46,11 +42,12 @@ macro_rules! attribute {
 macro_rules! attr_fn{
     ($($doc:expr)?, $name:ident, $actual:tt, $type:ty) => {
         $(#[doc = $doc])?
-        pub fn $name(&mut self, value: $type) {
+        pub fn $name(mut self, value: $type) -> Self {
             if !value.is_unset() {
                 write!(self.html, " {}", $actual);
                 value.write(&mut self.html);
             }
+            self
         }
     }
 }
@@ -105,7 +102,7 @@ forr! { ($type:ty, $attrs:tt) in [
     (track, [default<bool>, kind/*subtitles,captions,descriptions,chapters,metadata*/, label, src, srclang]),
     (video, [autoplay<bool>, controls<bool>, crossorigin/*anonymous, use-credentials*/, height<Number>, loop_="loop"<bool>, muted<bool>, playsinline<bool>, poster, preload/*none,metadata,auto*/, src, width<Number>])
 ] $*
-    impl<T: WriteHtml> $type<T, Tag> {
+    impl $type<'_, Tag> {
         forr! { $attr:ty in $attrs $*
             attribute!($type|$attr);
         }
@@ -115,33 +112,26 @@ forr! { ($type:ty, $attrs:tt) in [
 forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi, bdo, blockquote, body, br, button, canvas, caption, cite, code, col, colgroup, data, datalist, dd, del, details, dfn, dialog, dl, dt, em, embeded, div, fieldset, figcaption, figure, footer, form, h1, h2, h3, h4, h5, h6, head, header, hgroup, hr, html, i, iframe, img, input, ins, kbd, label, legend, li, link, main, map, mark, menu, meta, meter, nav, noscript, object, ol, optgroup, option, output, p, picture, pre, progress, q, rp, rt, ruby, s, samp, script, search, section, select, slot, small, source, span, strong, style, sub, summary, sup, table, tbody, td, template, textarea, tfoot, th, thead, time, title, tr, track, u, ul, var, video, wbr, xmp] $*
 
     #[doc = concat!("The [`<", stringify!($type), ">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/", stringify!($type), ") element.")]
-    pub struct $type<T: WriteHtml, Attr: ElementState> {
-        html: ManuallyDrop<T>,
+    pub struct $type<'html, Attr: ElementState> {
+        html: &'html mut Html,
         state: PhantomData<Attr>
     }
 
-    impl $type<crate::Html, Tag> {
+    impl $type<'_, Tag> {
         #[doc(hidden)]
         pub fn unused() {}
     }
 
-    impl<T: WriteHtml> $type<T, Tag> {
+    impl<'html> $type<'html, Tag> {
 
-        pub fn new(mut html: T) -> Self {
+        pub fn new(html: &'html mut Html) -> Self {
             html.write_open_tag_unchecked(stringify!($type));
             Self {
-                html: ManuallyDrop::new(html),
+                html: html,
                 state: PhantomData
             }
         }
 
-        iff! {!equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
-            pub fn body(mut self, body: impl FnOnce(&mut T)) -> $type<T, Body> {
-                self.html.write_gt();
-                body(&mut self.html);
-                self.change_state()
-            }
-        }
 
         // iff! {equals($type)(script) $:
         //     /// Adds JS code to the script.
@@ -165,27 +155,27 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         ///
         /// # Panics
         /// Panics on [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0).
-        pub fn custom_attr( &mut self, key: impl Display, value: impl ToAttribute<Any>)
-        {
+        pub fn custom_attr( self, key: impl Display, value: impl ToAttribute<Any>) -> Self {
             assert!(!key.to_string().chars().any(|c| c.is_whitespace()
                 || c.is_control()
                 || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-            self.custom_attr_unchecked(key, value);
+            self.custom_attr_unchecked(key, value)
         }
 
-        /// Sets a custom attribute.
-        ///
-        /// Useful for setting, e.g., `data-{key}`.
-        ///
-        /// # Panics
-        /// Panics on [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0).
-        pub fn custom_attr_list(self, key: impl Display) -> $type<T, CustomAttr>
-        {
-            assert!(!key.to_string().chars().any(|c| c.is_whitespace()
-                || c.is_control()
-                || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-            self.custom_attr_list_unchecked(key)
-        }
+        // TODO
+        // /// Sets a custom attribute.
+        // ///
+        // /// Useful for setting, e.g., `data-{key}`.
+        // ///
+        // /// # Panics
+        // /// Panics on [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0).
+        // pub fn custom_attr_list(self, key: impl Display) -> $type<CustomAttr>
+        // {
+        //     assert!(!key.to_string().chars().any(|c| c.is_whitespace()
+        //         || c.is_control()
+        //         || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+        //     self.custom_attr_list_unchecked(key)
+        // }
 
 
         /// Sets a custom attribute, without checking for valid keys.
@@ -193,46 +183,50 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
         /// Useful for setting, e.g., `data-{key}`.
         ///
         /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
-        pub fn custom_attr_unchecked(&mut self, key: impl Display, value: impl ToAttribute<Any>)
+        pub fn custom_attr_unchecked(mut self, key: impl Display, value: impl ToAttribute<Any>) -> Self
         {
             debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
                 || c.is_control()
                 || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
             write!(self.html, " {key}");
             value.write(&mut self.html);
+            self
         }
 
-        /// Sets a custom attribute, without checking for valid keys.
-        ///
-        /// Useful for setting, e.g., `data-{key}`.
-        ///
-        /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
-        pub fn custom_attr_list_unchecked(mut self, key: impl Display) -> $type<T, CustomAttr>
-        {
-            debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
-                || c.is_control()
-                || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-            write!(self.html, " {key}=\"");
-            self.change_state()
-        }
+        // TODO
+        // /// Sets a custom attribute, without checking for valid keys.
+        // ///
+        // /// Useful for setting, e.g., `data-{key}`.
+        // ///
+        // /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
+        // pub fn custom_attr_list_unchecked(mut self, key: impl Display) -> $type<T, CustomAttr>
+        // {
+        //     debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
+        //         || c.is_control()
+        //         || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
+        //     write!(self.html, " {key}=\"");
+        //     self.change_state()
+        // }
 
-        /// Adds classes to the element.
-        pub fn classes(mut self) -> $type<T, ClassesAttr> {
-            write!(self.html, " classes=\"");
-            self.change_state()
-        }
+        // TODO
+        // /// Adds classes to the element.
+        // pub fn class(mut self, value: impl ToAttribute<) -> $type<T, ClassesAttr> {
+        //     write!(self.html, " classes=\"");
+        //     self.change_state()
+        // }
 
-        /// Adds styles to the element.
-        pub fn style(mut self) -> $type<T, StyleAttr> {
-            write!(self.html, " style=\"");
-            self.change_state()
-        }
+        // TODO
+        // /// Adds styles to the element.
+        // pub fn style(mut self) -> $type<T, StyleAttr> {
+        //     write!(self.html, " style=\"");
+        //     self.change_state()
+        // }
 
         // Global attributes
         // TODO class should be able to specify multiple times
         forr! { $attr:ty in [
             // TODO ARIA: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes
-            accesskey<char>, autocapitalize/*off/none, on/sentence, words, characters*/, autofocus<bool>, contenteditable/*true, false, plaintext-only*/, dir/*ltr,rtl,auto*/, draggable/*true,false*/, enterkeyhint,hidden<FlagOrValue<String>>/*hidden|until-found*/, id, inert<bool>, inputmode/*none,text,decimal,numeric,tel,search,email,url*/, is, itemid, itemprop, itemref, itemscope, itemtype, lang, nonce, part, popover, rolle, slot, spellcheck<FlagOrValue<String>>/*true,false*/, tabindex, title, translate/*yes,no*/, virtualkeyboardpolicy/*auto,manual*/] $*
+            class, accesskey<char>, autocapitalize/*off/none, on/sentence, words, characters*/, autofocus<bool>, contenteditable/*true, false, plaintext-only*/, dir/*ltr,rtl,auto*/, draggable/*true,false*/, enterkeyhint,hidden<FlagOrValue<String>>/*hidden|until-found*/, id, inert<bool>, inputmode/*none,text,decimal,numeric,tel,search,email,url*/, is, itemid, itemprop, itemref, itemscope, itemtype, lang, nonce, part, popover, rolle, slot, spellcheck<FlagOrValue<String>>/*true,false*/, tabindex, title, translate/*yes,no*/, virtualkeyboardpolicy/*auto,manual*/] $*
             attribute!(global|$attr);
         }
         // Event handlers
@@ -245,108 +239,64 @@ forr! { $type:ty in [a, abbr, address, area, article, aside, audio, b, base, bdi
 
     iff! {!equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
 
-        impl <T: WriteHtml> $type<T, Body> {
+        impl <Attr: ElementState> $type<'_, Attr> {
             iff! {equals($type)(script) $:
-                pub fn child_expr(mut self, child: impl ToScript) -> Self {
-                    child.to_script(&mut self);
-                    self
+                pub fn body(mut self, body: impl IntoScript) -> impl IntoHtml {
+                    Attr::close_tag(&mut self.html);
+                    body.into_script(&mut self.html);
+                    self.html.write_close_tag_unchecked(stringify!($type));
+                    Fragment::EMPTY
                 }
             }
 
             iff! {equals($type)(style) $:
-                pub fn child_expr(mut self, child: impl ToStyle) -> Self {
-                    child.to_style(&mut self);
-                    self
+                pub fn body(mut self, body: impl IntoStyle) -> impl IntoHtml {
+                    Attr::close_tag(&mut self.html);
+                    body.into_style(&mut self.html);
+                    self.html.write_close_tag_unchecked(stringify!($type));
+                    Fragment::EMPTY
                 }
             }
 
             iff! {!equals_any($type)[(style), (script)] $:
-                pub fn child_expr(mut self, child: impl ToHtml) -> Self {
-                    child.to_html(&mut self);
-                    self
-                }
-
-                pub fn child<C>(self, child: impl FnOnce(Self) -> C) -> C {
-                    child(self)
+                pub fn body(mut self, body: impl IntoHtml) -> impl IntoHtml {
+                    Attr::close_tag(&mut self.html);
+                    body.into_html(&mut self.html);
+                    self.html.write_close_tag_unchecked(stringify!($type));
+                    Fragment::EMPTY
                 }
             }
         }
 
-        impl <Html: WriteHtml> WriteHtml for $type<Html, Body> {
-            fn write_str(&mut self, s: &str) {
-                self.html.write_str(s);
-            }
-
-            fn write_char(&mut self, c: char) {
-                self.html.write_char(c);
-            }
-
-            fn write_fmt(&mut self, a: std::fmt::Arguments) {
-                self.html.write_fmt(a);
-            }
-
-        }
-
-        impl<Html: WriteHtml, S: ElementState> $type<Html, S> {
-            pub fn close(mut self) -> Html {
-                S::close_tag(&mut self.html);
-                self.html.write_close_tag_unchecked(stringify!($type));
-                let html = unsafe { ManuallyDrop::take(&mut self.html) };
-                std::mem::forget(self);
-                html
-            }
-        }
-
-        impl <T: WriteHtml, Attr: ElementState> Drop for $type<T, Attr> {
-            fn drop(&mut self) {
-                Attr::close_tag(&mut self.html);
-                self.html.write_close_tag_unchecked(stringify!($type));
+        impl <Attr: ElementState> $type<'_, Attr> {
+            pub fn close(self) -> impl IntoHtml {
+                self.body(::htmx::Fragment::EMPTY)
             }
         }
     }
 
     iff! {equals_any($type)[(area), (base), (br), (col), (embeded), (hr), (input), (link), (meta), (source), (track), (wbr)] $:
-        impl <T: WriteHtml, Attr: ElementState> Drop for $type<T, Attr> {
-            fn drop(&mut self) {
+        impl <Attr: ElementState> $type<'_, Attr> {
+            pub fn close(mut self) -> impl IntoHtml {
                 Attr::close_tag(&mut self.html);
-                self.html.write_close_tag_unchecked(stringify!($type));
-            }
-        }
-
-        impl<Html: WriteHtml, S: ElementState> $type<Html, S> {
-            pub fn close(mut self) -> Html {
-                S::close_tag(&mut self.html);
-                let html = unsafe { ManuallyDrop::take(&mut self.html) };
-                std::mem::forget(self);
-                html
+                Fragment::EMPTY
             }
         }
     }
 
-    impl <T: WriteHtml, Attr: ElementState> $type<T, Attr> {
-        fn change_state<New: ElementState>(mut self) -> $type<T, New> {
-                let html = unsafe { ManuallyDrop::take(&mut self.html) };
-                std::mem::forget(self);
-                $type {
-                    html: ManuallyDrop::new(html),
-                    state: PhantomData
-                }
-        }
 
-    }
+    // TODO
+    // forr! {$Attr:ty in [CustomAttr, ClassesAttr, StyleAttr] $*
+    //     impl $type<$Attr> {
+    //         pub fn add(mut self, value: impl Display) -> Self {
+    //             write!(self.html, "; {value}");
+    //             self
+    //         }
 
-
-    forr! {$Attr:ty in [CustomAttr, ClassesAttr, StyleAttr] $*
-        impl<T: WriteHtml> $type<T, $Attr> {
-            pub fn add(mut self, value: impl Display) -> Self {
-                write!(self.html, "; {value}");
-                self
-            }
-
-            pub fn close_attr(mut self) -> $type<T, Tag> {
-                self.html.write_quote();
-                self.change_state()
-            }
-        }
-    }
+    //         pub fn close_attr(mut self) -> $type<T, Tag> {
+    //             self.html.write_quote();
+    //             self.change_state()
+    //         }
+    //     }
+    // }
 }

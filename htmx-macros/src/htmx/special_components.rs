@@ -74,6 +74,37 @@ pub enum Special {
     FunctionCall(FunctionCall),
 }
 
+fn map_vec(value: Vec<Node>) -> Result<Vec<super::Node>> {
+    value.into_iter().map(super::Node::try_from).collect()
+}
+
+impl TryFrom<Special> for super::Node {
+    type Error = manyhow::Error;
+
+    fn try_from(value: Special) -> std::result::Result<Self, Self::Error> {
+        Ok(match value {
+            Special::If(if_) => super::Node::If(if_.try_into()?),
+            Special::For(For {
+                pat, expr, body, ..
+            }) => super::Node::For(super::For {
+                pat: pat.into_token_stream(),
+                expr: expr.into_token_stream(),
+                body: map_vec(body)?,
+            }),
+            Special::While(While { expr, body, .. }) => super::Node::While(super::While {
+                expr: expr.into_token_stream(),
+                body: map_vec(body)?,
+            }),
+            Special::FunctionCall(FunctionCall { function, args, .. }) => {
+                super::Node::FunctionCall(super::FunctionCall {
+                    function: function.into_token_stream(),
+                    args: args.into_iter().map(ToTokens::into_token_stream).collect(),
+                })
+            }
+        })
+    }
+}
+
 impl Special {
     pub(crate) fn expand_node(self) -> Result {
         match self {
@@ -121,6 +152,31 @@ pub struct If {
     #[to_tokens(TokenStreamExt::append_all)]
     pub then_branch: Vec<Node>,
     pub else_branch: ElseBranch,
+}
+
+impl TryFrom<If> for super::If {
+    type Error = manyhow::Error;
+
+    fn try_from(
+        If {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        }: If,
+    ) -> std::result::Result<Self, Self::Error> {
+        Ok(super::If {
+            condition: condition.into_token_stream(),
+            then_branch: map_vec(then_branch)?,
+            else_branch: match else_branch {
+                ElseBranch::None => super::ElseBranch::None,
+                ElseBranch::Else { body, .. } => super::ElseBranch::Else(map_vec(body)?),
+                ElseBranch::ElseIf { body, .. } => {
+                    super::ElseBranch::ElseIf(Box::new((*body).try_into()?))
+                }
+            },
+        })
+    }
 }
 
 impl If {

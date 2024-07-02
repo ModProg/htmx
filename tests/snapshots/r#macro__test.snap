@@ -1,5 +1,5 @@
 ---
 source: tests/macro.rs
-expression: html.into_html().to_string()
+expression: html.to_string()
 ---
-<!DOCTYPE html><div><a download href="hello"></a><a download="file.name" href="hello"></a><a href="test"></a></div>
+<!DOCTYPE html><div><a href="hello" download></a><a href="hello" download="file.name"></a><a href="test"></a></div>

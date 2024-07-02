@@ -1,0 +1,5 @@
+---
+source: src/lib.rs
+expression: "html! { \"this < will be > escaped \" <RawSrc(\"This < will > not\")/> }"
+---
+<!DOCTYPE html>this &lt; will be &gt; escaped This < will > not

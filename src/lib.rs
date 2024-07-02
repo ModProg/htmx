@@ -110,42 +110,87 @@ mod axum;
 
 #[doc(hidden)]
 pub mod __private {
-    pub use typed_builder;
+    pub trait Unused {
+        fn unused() {}
+    }
+    impl<T> Unused for T {}
+
+    pub trait Settable<T> {
+        fn get_or_default(self) -> T
+        where
+            T: Default;
+    }
+
+    pub struct Unset;
+    impl<T> Settable<T> for Unset {
+        fn get_or_default(self) -> T
+        where
+            T: Default,
+        {
+            T::default()
+        }
+    }
+
+    #[ghost::phantom]
+    pub struct Empty<I>;
+    impl<I> Iterator for Empty<I> {
+        type Item = I;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            None
+        }
+    }
+
+    pub struct Set<T>(pub T);
+    impl<T> Settable<T> for Set<T> {
+        fn get_or_default(self) -> T
+        where
+            T: Default,
+        {
+            self.0
+        }
+    }
+    impl<T: IntoIterator> IntoIterator for Set<T> {
+        type IntoIter = T::IntoIter;
+        type Item = T::Item;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.0.into_iter()
+        }
+    }
 }
 
-/// Allows to make a component from a function or struct.
-///
-/// # Struct
-/// A struct needs to have an <code>[Into]<[Html]></code> implementation.
-/// ```
-/// # use htmx::{component, html, Html};
-/// #[component]
-/// struct Component {
-///     a: bool,
-///     b: String,
-/// }
-///
-/// impl From<Component> for Html {
-///     fn from(Component { a, b }: Component) -> Self {
-///         html! {
-///             <button disabled=a>{b}</button>
-///         }
-///     }
-/// }
-///
-/// html! {
-///     <Component a b="Disabled Button"/>
-///     <Component a=true b="Disabled Button"/>
-///     <Component a=false b="Enabled Button"/>
-///     <Component b="Enabled Button"/>
-/// };
-/// ```
-///
-/// In the case of struct components, all the [`#[component]`](component) macro
-/// does, is generating a derive for [`typed_builder::TypedBuilder`], setting
-/// some default attributes, like making [`bool`s](bool) optional and making the
-/// builder accept [`Into`].
-///
+/// Allows to make a component from a function.
+// # Struct
+// A struct needs to have an <code>[Into]<[Html]></code> implementation.
+// ```
+// # use htmx::{component, html, Html};
+// #[component]
+// struct Component {
+//     a: bool,
+//     b: String,
+// }
+//
+// impl From<Component> for Html {
+//     fn from(Component { a, b }: Component) -> Self {
+//         html! {
+//             <button disabled=a>{b}</button>
+//         }
+//     }
+// }
+//
+// html! {
+//     <Component a b="Disabled Button"/>
+//     <Component a=true b="Disabled Button"/>
+//     <Component a=false b="Enabled Button"/>
+//     <Component b="Enabled Button"/>
+// };
+// ```
+//
+// In the case of struct components, all the [`#[component]`](component) macro
+// does, is generating a derive for [`typed_builder::TypedBuilder`], setting
+// some default attributes, like making [`bool`s](bool) optional and making the
+// builder accept [`Into`].
 /// # Function
 /// Instead of structs function components are more succinct.
 ///
@@ -154,7 +199,7 @@ pub mod __private {
 /// ```
 /// # use htmx::{component, html, Html};
 /// #[component]
-/// fn Component(a: bool, b: String) -> Html {
+/// fn Component(a: bool, b: String) {
 ///     html! {
 ///         <button disabled=a>{b}</button>
 ///     }
@@ -225,6 +270,7 @@ pub use htmx_macros::component;
 ///         }
 ///     </_> // Closing tags can be inferred.
 /// }
+/// .into_string()
 /// # );
 /// ```
 pub use htmx_macros::html;
@@ -272,7 +318,7 @@ impl<T: Serialize> ToJs for T {
 #[must_use]
 pub struct Html(String);
 
-impl WriteHtml for Html {
+impl Html {
     fn write_str(&mut self, s: &str) {
         self.0.push_str(s);
     }
@@ -283,6 +329,44 @@ impl WriteHtml for Html {
 
     fn write_fmt(&mut self, a: fmt::Arguments) {
         self.0.write_fmt(a).unwrap();
+    }
+
+    fn write_quote(&mut self) {
+        self.write_char('"');
+    }
+
+    fn write_gt(&mut self) {
+        self.write_char('>');
+    }
+
+    fn write_open_tag_unchecked(&mut self, name: impl Display) {
+        debug_assert!(name.to_string().to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
+         "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
+        );
+        write!(self, "<{name}");
+    }
+
+    fn write_close_tag_unchecked(&mut self, name: impl Display) {
+        debug_assert!(name.to_string().to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
+         "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
+        );
+        write!(self, "</{name}>");
+    }
+
+    fn write_attr_value_unchecked(&mut self, value: impl Display) {
+        write!(self, "=\"{value}\"");
+    }
+
+    fn write_attr_value_inner_unchecked(&mut self, value: impl Display) {
+        write!(self, "{value}");
+    }
+
+    fn write_attr_value_encoded(&mut self, value: impl Display) {
+        self.write_attr_value_unchecked(encode_double_quoted_attribute(&value.to_string()));
+    }
+
+    fn write_attr_value_inner_encoded(&mut self, value: impl Display) {
+        self.write_attr_value_inner_unchecked(encode_double_quoted_attribute(&value.to_string()));
     }
 }
 
@@ -389,18 +473,19 @@ impl<T: WriteHtml> WriteHtml for ManuallyDrop<T> {
 ///
 /// The [`html!`] macro uses them for all tags that contain `-` making it
 /// possible to use web-components.
-pub struct CustomElement<Html: WriteHtml, S: ElementState> {
-    html: ManuallyDrop<Html>,
-    name: ManuallyDrop<Cow<'static, str>>,
+#[must_use = "call close or body"]
+pub struct CustomElement<'html, S: ElementState> {
+    html: &'html mut Html,
+    name: Cow<'html, str>,
     state: PhantomData<S>,
 }
 
-impl<Html: WriteHtml> CustomElement<Html, Tag> {
+impl<'html> CustomElement<'html, Tag> {
     /// Creates a new HTML element with the specified `name`.
     /// # Panics
     /// Panics on [invalid element names](https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname).
     /// Only the character classes are enforced, not the existence of a `-`.
-    pub fn new(html: Html, name: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new(html: &'html mut Html, name: impl Into<Cow<'html, str>>) -> Self {
         let name = name.into();
         assert!(name.to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
          "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
@@ -414,15 +499,15 @@ impl<Html: WriteHtml> CustomElement<Html, Tag> {
     /// only in debug builds, failing to ensure valid keys can lead to broken
     /// HTML output. Only the character classes are enforced, not the
     /// existence of a `-`.
-    pub fn new_unchecked(mut html: Html, name: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new_unchecked(html: &'html mut Html, name: impl Into<Cow<'html, str>>) -> Self {
         let name = name.into();
         debug_assert!(name.to_ascii_lowercase().chars().all(|c| matches!(c, '-' | '.' | '0'..='9' | '_' | 'a'..='z' | '\u{B7}' | '\u{C0}'..='\u{D6}' | '\u{D8}'..='\u{F6}' | '\u{F8}'..='\u{37D}' | '\u{37F}'..='\u{1FFF}' | '\u{200C}'..='\u{200D}' | '\u{203F}'..='\u{2040}' | '\u{2070}'..='\u{218F}' | '\u{2C00}'..='\u{2FEF}' | '\u{3001}'..='\u{D7FF}' | '\u{F900}'..='\u{FDCF}' | '\u{FDF0}'..='\u{FFFD}' | '\u{10000}'..='\u{EFFFF}')),
          "invalid tag name `{name}`, https://html.spec.whatwg.org/multipage/custom-elements.html#prod-potentialcustomelementname"
         );
         write!(html, "<{name}");
         Self {
-            html: ManuallyDrop::new(html),
-            name: ManuallyDrop::new(name),
+            html,
+            name,
             state: PhantomData,
         }
     }
@@ -432,23 +517,24 @@ impl<Html: WriteHtml> CustomElement<Html, Tag> {
     ///
     /// # Panics
     /// Panics on [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0).
-    pub fn custom_attr(&mut self, key: impl Display, value: impl ToAttribute<Any>) {
+    pub fn custom_attr(self, key: impl Display, value: impl ToAttribute<Any>) -> Self {
         assert!(!key.to_string().chars().any(|c| c.is_whitespace()
             || c.is_control()
             || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
-        self.custom_attr_unchecked(key, value);
+        self.custom_attr_unchecked(key, value)
     }
 
     /// Sets the attribute `key`, this does not do any type checking and allows
     /// [`AnyAttributeValue`], without checking for invalid characters.
     ///
     /// Note: This function does contain the check for [invalid attribute names](https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0) only in debug builds, failing to ensure valid keys can lead to broken HTML output.
-    pub fn custom_attr_unchecked(&mut self, key: impl Display, value: impl ToAttribute<Any>) {
+    pub fn custom_attr_unchecked(self, key: impl Display, value: impl ToAttribute<Any>) -> Self {
         debug_assert!(!key.to_string().chars().any(|c| c.is_whitespace()
             || c.is_control()
             || matches!(c, '\0' | '"' | '\'' | '>' | '/' | '=')), "invalid key `{key}`, https://www.w3.org/TR/2011/WD-html5-20110525/syntax.html#attributes-0");
         write!(self.html, " {key}");
-        value.write(&mut self.html);
+        value.write(self.html);
+        self
     }
 
     // TODO, use closure like body
@@ -470,47 +556,33 @@ impl<Html: WriteHtml> CustomElement<Html, Tag> {
     //     self.change_state()
     // }
 
-    pub fn body(mut self, body: impl FnOnce(&mut Html)) {
-        self.html.write_gt();
-        body(&mut self.html);
-        self.change_state::<Body>();
-    }
-}
-
-impl<Html: WriteHtml, S: ElementState> CustomElement<Html, S> {
-    fn change_state<New: ElementState>(mut self) -> CustomElement<Html, New> {
-        let html = unsafe { ManuallyDrop::take(&mut self.html) };
-        let name = unsafe { ManuallyDrop::take(&mut self.name) };
-        std::mem::forget(self);
-        CustomElement {
-            html: ManuallyDrop::new(html),
-            name: ManuallyDrop::new(name),
-            state: PhantomData,
-        }
-    }
-}
-
-impl<Html: WriteHtml, S: ElementState> Drop for CustomElement<Html, S> {
-    fn drop(&mut self) {
-        S::close_tag(&mut self.html);
+    pub fn body(self, body: impl IntoHtml) -> impl IntoHtml {
+        Tag::close_tag(self.html);
+        body.into_html(self.html);
         self.html.write_close_tag_unchecked(self.name.as_ref());
+
+        Fragment::EMPTY
+    }
+
+    pub fn close(self) -> impl IntoHtml {
+        self.body(Fragment::EMPTY)
     }
 }
 
-/// Puts content directly into HTML bypassing HTML-escaping.
+/// Puts content directly into HTML (or CSS/JS), bypassing HTML-escaping.
 ///
 /// ```
-/// # use htmx::{html, RawHtml};
-/// # insta::assert_display_snapshot!("doc-RawHtml",
+/// # use htmx::{html, RawSrc};
+/// # insta::assert_display_snapshot!("doc-RawSrc",
 /// html! {
 ///     "this < will be > escaped "
-///     <RawHtml("This < will > not")/>
+///     <RawSrc("This < will > not")/>
 /// }
 /// # );
 /// ```
-pub struct RawHtml<'a>(pub Cow<'a, str>);
+pub struct RawSrc<'a>(pub Cow<'a, str>);
 
-impl<'a> RawHtml<'a> {
+impl<'a> RawSrc<'a> {
     /// Creates a new `RawHtml`.
     pub fn new(content: impl Into<Cow<'a, str>>) -> Self {
         Self(content.into())
@@ -519,48 +591,94 @@ impl<'a> RawHtml<'a> {
 
 pub struct Fragment<F>(pub F);
 
-// TODO reconsider elements implementing WriteHtml, maybe it would be better for them to implement a way to access the underlying `Html`
-impl<F> Fragment<F> {
-    #[allow(non_snake_case)]
-    pub fn EMPTY(self, html: impl WriteHtml) {}
+impl Fragment<fn(&mut Html)> {
+    pub const EMPTY: Self = Self(|_| {});
 }
 
-impl<F: FnOnce(Html), Html: WriteHtml> IntoHtml<Html> for Fragment<F> {
-    fn into_html(self, html: Html) {
+impl<F: FnOnce(&mut Html)> From<Fragment<F>> for Html {
+    fn from(val: Fragment<F>) -> Self {
+        let mut html = Html::new();
+        val.into_html(&mut html);
+        html
+    }
+}
+
+impl<F: FnOnce(&mut Html)> Fragment<F> {
+    pub fn into_string(self) -> String {
+        Html::from(self).0
+    }
+
+    pub fn into_html(self, html: &mut Html) {
         self.0(html);
     }
 }
 
-pub trait IntoHtml<Html> {
-    fn into_html(self, html: Html);
+impl<F: Fn(&mut Html)> Display for Fragment<F> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut html = Html::new();
+        self.0(&mut html);
+        html.fmt(f)
+    }
 }
 
-impl<T: ToHtml, Html: WriteHtml> IntoHtml<Html> for T {
-    fn into_html(self, html: Html) {
+impl<F: FnOnce(&mut Html)> IntoHtml for Fragment<F> {
+    fn into_html(self, html: &mut Html) {
+        self.0(html);
+    }
+}
+impl<F: FnOnce(&mut Html)> IntoStyle for Fragment<F> {
+    fn into_style(self, html: &mut Html) {
+        self.0(html);
+    }
+}
+impl<F: FnOnce(&mut Html)> IntoScript for Fragment<F> {
+    fn into_script(self, html: &mut Html) {
+        self.0(html);
+    }
+}
+
+pub trait IntoHtml {
+    fn into_html(self, html: &mut Html);
+}
+
+impl<T: ToHtml> IntoHtml for T {
+    fn into_html(self, html: &mut Html) {
         self.to_html(html);
     }
 }
 
 pub trait ToHtml {
-    fn to_html(&self, html: impl WriteHtml);
+    fn to_html(&self, html: &mut Html);
 }
 
 impl<T: ToHtml> ToHtml for &T {
-    fn to_html(&self, html: impl WriteHtml) {
+    fn to_html(&self, html: &mut Html) {
         T::to_html(self, html);
     }
 }
 
 impl<T: ToHtml> ToHtml for Option<T> {
-    fn to_html(&self, html: impl WriteHtml) {
+    fn to_html(&self, html: &mut Html) {
         if let Some(it) = self {
             it.to_html(html);
         }
     }
 }
 
-impl ToHtml for RawHtml<'_> {
-    fn to_html(&self, mut html: impl WriteHtml) {
+impl ToHtml for RawSrc<'_> {
+    fn to_html(&self, html: &mut Html) {
+        html.write_str(&self.0);
+    }
+}
+
+impl ToScript for RawSrc<'_> {
+    fn to_script(&self, html: &mut Html) {
+        html.write_str(&self.0);
+    }
+}
+
+impl ToStyle for RawSrc<'_> {
+    fn to_style(&self, html: &mut Html) {
         html.write_str(&self.0);
     }
 }
@@ -569,7 +687,7 @@ impl ToHtml for RawHtml<'_> {
 pub struct Css<'a>(pub Cow<'a, str>);
 
 impl ToHtml for Css<'_> {
-    fn to_html(&self, _html: impl WriteHtml) {
+    fn to_html(&self, _html: &mut Html) {
         todo!()
         // TODO: style::new(html).child(self.0.as_ref()).close();
     }
@@ -578,7 +696,7 @@ impl ToHtml for Css<'_> {
 pub struct Tag;
 
 impl ElementState for Tag {
-    fn close_tag(mut html: impl WriteHtml) {
+    fn close_tag(html: &mut Html) {
         html.write_gt();
     }
 }
@@ -587,7 +705,7 @@ forr! { $ty:ty in [CustomAttr, StyleAttr, ClassesAttr] $*
     pub struct $ty;
 
     impl ElementState for $ty {
-        fn close_tag(mut html: impl WriteHtml) {
+        fn close_tag(html: &mut Html) {
             html.write_quote();
             html.write_gt();
         }
@@ -597,55 +715,75 @@ forr! { $ty:ty in [CustomAttr, StyleAttr, ClassesAttr] $*
 pub struct Body;
 
 impl ElementState for Body {
-    fn close_tag(_: impl WriteHtml) {}
+    fn close_tag(_: &mut Html) {}
 }
 
 pub trait ElementState {
-    fn close_tag(html: impl WriteHtml);
+    fn close_tag(html: &mut Html);
 }
 
 forr! {$type:ty in [&str, String, Cow<'_, str>]$*
     impl ToHtml for $type {
-        fn to_html(&self, mut out: impl WriteHtml) {
+        fn to_html(&self, out: &mut Html) {
             write!(out, "{}", html_escape::encode_text(&self));
         }
     }
 
     impl ToScript for $type {
-        fn to_script(&self, mut out: impl WriteHtml) {
+        fn to_script(&self, out: &mut Html) {
             write!(out, "{}", html_escape::encode_script(&self));
         }
     }
 
     impl ToStyle for $type {
-        fn to_style(&self, mut out: impl WriteHtml) {
+        fn to_style(&self, out: &mut Html) {
             write!(out, "{}", html_escape::encode_style(&self));
         }
     }
 }
 
 impl ToHtml for char {
-    fn to_html(&self, mut out: impl WriteHtml) {
+    fn to_html(&self, out: &mut Html) {
         write!(out, "{}", html_escape::encode_text(&self.to_string()));
     }
 }
 
 pub trait ToScript {
-    fn to_script(&self, out: impl WriteHtml);
+    fn to_script(&self, out: &mut Html);
 }
 
 impl<T: ToScript> ToScript for &T {
-    fn to_script(&self, out: impl WriteHtml) {
+    fn to_script(&self, out: &mut Html) {
         T::to_script(self, out);
     }
 }
 
+pub trait IntoScript {
+    fn into_script(self, html: &mut Html);
+}
+
+impl<T: ToScript> IntoScript for T {
+    fn into_script(self, html: &mut Html) {
+        self.to_script(html);
+    }
+}
+
 pub trait ToStyle {
-    fn to_style(&self, out: impl WriteHtml);
+    fn to_style(&self, out: &mut Html);
 }
 
 impl<T: ToStyle> ToStyle for &T {
-    fn to_style(&self, out: impl WriteHtml) {
+    fn to_style(&self, out: &mut Html) {
         T::to_style(self, out);
+    }
+}
+
+pub trait IntoStyle {
+    fn into_style(self, html: &mut Html);
+}
+
+impl<T: ToStyle> IntoStyle for T {
+    fn into_style(self, html: &mut Html) {
+        self.to_style(html);
     }
 }

@@ -14,8 +14,7 @@ repository = "https://github.com/ModProg/htmx"
 documentation = "https://docs.rs/htmx"
 
 [features]
-default = ["axum", "actix-web"]
-sorted_attributes = []
+# default = ["axum", "actix-web"]
 axum = ["dep:axum-core"]
 
 [dependencies]
@@ -30,13 +29,10 @@ serde = "1.0.188"
 serde_json = "1.0.107"
 typed-builder = {git = "https://github.com/ModProg/rust-typed-builder", branch = "mutators"}
 chrono = "0.4.31"
+ghost = "0.1.17"
 
 [dev-dependencies]
 insta = "1.31.0"
-# Enables `sorted_attributes` for tests, to make assertions stable.
-htmx = { path = ".", default-features = false, features = [
-    "sorted_attributes",
-] }
 serde = { version = "1.0.188", features = ["derive"] }
 
 [profile.dev.package.insta]

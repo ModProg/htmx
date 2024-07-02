@@ -1,6 +1,6 @@
 use axum_core::response::IntoResponse;
 
-use crate::{Css, Html, HtmxSrc};
+use crate::{Css, Fragment, Html, HtmxSrc};
 
 impl IntoResponse for Html {
     fn into_response(self) -> axum_core::response::Response {
@@ -12,13 +12,19 @@ impl IntoResponse for Html {
     }
 }
 
-impl IntoResponse for Css<'static> {
+impl<F: FnOnce(&mut Html)> IntoResponse for Fragment<F> {
     fn into_response(self) -> axum_core::response::Response {
         (
-            [("Content-Type", "text/css; charset=utf-8")],
-            self.0,
+            [("Content-Type", "text/html; charset=utf-8")],
+            Html::from(self).to_string(),
         )
             .into_response()
+    }
+}
+
+impl IntoResponse for Css<'static> {
+    fn into_response(self) -> axum_core::response::Response {
+        ([("Content-Type", "text/css; charset=utf-8")], self.0).into_response()
     }
 }
 

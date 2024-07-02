@@ -1,5 +1,5 @@
 ---
 source: tests/utils.rs
-expression: "htmx! {\n                < HtmlPage mobile title = \"Title\" lang = \"de\" style_sheets =\n                [\"hello.css\", \"world.css\"] scripts = vec!\n                [\"a_script.js\".to_string()] > < / _ >\n            }.to_string().as_str()"
+expression: "html! {\n                <HtmlPage mobile title=\"Title\" lang=\"de\"\n                style_sheets=[\"hello.css\", \"world.css\"]\n                scripts=vec![\"a_script.js\".to_string()] > <a> </a> </_>\n            }.to_string().as_str()"
 ---
-<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>Title</title><meta content="width=device-width, initial-scale=1" name="viewport"><link href="hello.css" rel="stylesheet"><link href="world.css" rel="stylesheet"><script src="a_script.js"></script></head><body></body></html>
+<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>Title</title><meta name="viewport" content="width=device-width, initial-scale=1"><link href="hello.css" rel="stylesheet"><link href="world.css" rel="stylesheet"><script src="a_script.js"></script></head><body><a></a></body></html>

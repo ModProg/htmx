@@ -21,9 +21,9 @@ mod htmx;
 // more rusty kind of typst syntax:
 // rtml! {div(attr: "hello") [ {rust block}, "literals"]}
 #[manyhow(proc_macro)]
-pub use htmx::html;
+pub use htmx::html::html;
 #[manyhow(proc_macro)]
-pub use htmx::rtml;
+pub use htmx::rusty::rtml;
 
 // js!{  }
 

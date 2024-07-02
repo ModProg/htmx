@@ -7,7 +7,7 @@ use actix_web::http::header::ContentType;
 use actix_web::web::Bytes;
 use actix_web::{HttpResponse, Responder};
 
-use crate::{Css, Html, HtmxSrc};
+use crate::{Css, Html, HtmxSrc, Fragment};
 
 impl Responder for Html {
     type Body = BoxBody;
@@ -16,6 +16,16 @@ impl Responder for Html {
         HttpResponse::Ok()
             .content_type(ContentType::html())
             .body(self)
+    }
+}
+
+impl<F: FnOnce(&mut Html)> Responder for Fragment<F> {
+    type Body = BoxBody;
+
+    fn respond_to(self, _req: &actix_web::HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok()
+            .content_type(ContentType::html())
+            .body(Html::from(self))
     }
 }
 
